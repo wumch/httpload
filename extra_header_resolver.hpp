@@ -247,8 +247,8 @@ protected:
 			{
 				if (GOL_LIKELY(bytes_buffered >= GOL_STRLEN(GOL_VER_IDEC)))
 				{
-					GOL_ERR("received old-version-protocol packet, forwards to SuccessCallback")
-					return (void)success_callback(error, bytes_buffered);
+					GOL_ERR("received old-version-protocol packet, forwarding to " << GOL_OC_BLUE("success_callback(error, ") << GOL_OC_RED(bytes_buffered) << GOL_OC_BLUE(")"))
+					return static_cast<void>(success_callback(error, bytes_buffered));
 				}
 			}
 #endif
@@ -269,8 +269,8 @@ protected:
 					GOL_DUMP(extra_header_len)
 					if (GOL_LIKELY(bytes_buffered == static_cast<buf_size_t>(extra_header_len)))		// received bytes are exactly the `extra_header`.
 					{
-						success_callback(error, bytes_buffered = 0);
-						GOL_SAY(GOL_OC_GREEN("extra-header is exactly matched."))
+						GOL_SAY(GOL_OC_GREEN("extra-header is exactly matched. forwarding to " << GOL_OC_BLUE("success_callback(error, 0)")))
+						return static_cast<void>(success_callback(error, bytes_buffered = 0));
 					}
 					else	// some additional bytes behind `extra_header`.
 					{
@@ -286,33 +286,33 @@ protected:
 							std::memcpy(tmp_data, buffer + extra_header_len, bytes_buffered);
 							std::memcpy(buffer, tmp_data, bytes_buffered);
 						}
-						GOL_SAY(GOL_OC_GREEN("extra-header is correct, ") << GOL_OC_RED(bytes_buffered) << GOL_OC_GREEN(" bytes remains in buffer..."))
-						success_callback(error, (bytes_buffered));	// handle additional bytes.
+						GOL_SAY(GOL_OC_GREEN("extra-header is correct,  forwarding to " << GOL_OC_BLUE("success_callback(error, ") << GOL_OC_RED(bytes_buffered) << GOL_OC_BLUE(")")))
+						return static_cast<void>(success_callback(error, (bytes_buffered)));	// handle additional bytes.
 					}
 				}
 #if !(defined(GOL_EXTRA_HEADER_CONST) && GOL_EXTRA_HEADER_CONST)
 				else if (bytes_buffered < extra_header_rpos)
 				{
 					GOL_ERR("received incomplete extra-header, cumulative length: " << bytes_buffered << ", continue with receive.")
-					receive_header();
+					return static_cast<void>(receive_header());
 				}
 #endif
 				else	// received extra_header is wrong, just disconnect.
 				{
-					GOL_ERR("received wrong extra-header, disconnecting.")
-					error_callback(error);
+					GOL_ERR("received wrong extra-header, forwarding to error_callback(error).")
+					return static_cast<void>(error_callback(error));
 				}
 			}
 			else	// extra_header is incomplete, continue with receive_header().
 			{
 				GOL_ERR("extra-header is incomplete, cumulative length: " << bytes_buffered << ", continue with receive.")
-				receive_header();
+				return static_cast<void>(receive_header());
 			}
 		}
 		else	// socket error
 		{
-			GOL_ERR("socket error: " << error)
-			error_callback(error);
+			GOL_ERR("socket error, forwarding to error_callback(" << error << ")");
+			return static_cast<void>(error_callback(error));
 		}
 	}
 
