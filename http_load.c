@@ -134,6 +134,19 @@ static int max_connections, num_connections, max_parallel;
 
 static int http_status_counts[1000]; /* room for all three-digit statuses */
 
+typedef struct {
+	turn_t turn;
+	size_t fetches;
+	struct timeval total_time;
+	struct timeval min_time;
+	struct timeval max_time;
+	int http_status;
+	size_t fails;
+	size_t bytes;
+	size_t content_length;
+} UrlReport;
+static UrlReport* reports;
+
 #define CNST_FREE 0
 #define CNST_CONNECTING 1
 #define CNST_HEADERS 2
@@ -573,8 +586,6 @@ static void read_url_file(const char* url_file)
 		{
 			line[strlen(line) - 1] = '\0';
 		}
-
-		printf("%u,%s\n", weight, line);
 		wtotal += weight;
 
 		/* Check for room in urls. */
@@ -642,6 +653,8 @@ static void read_url_file(const char* url_file)
 		urls[num_urls].got_checksum = 0;
 		++num_urls;
 	}
+
+	reports = (UrlReport*)calloc(num_urls, sizeof(UrlReport));
 }
 
 static void lookup_address(int url_num)
@@ -1058,7 +1071,7 @@ static void handle_connect(int cnum, struct timeval* nowP, int double_check)
 #else
 	r = write(connections[cnum].conn_fd, buf, bytes);
 #endif
-	printf("request\t%s\n", urls[url_num].url_str);
+
 	if (r < 0)
 	{
 		perror(urls[url_num].url_str);
@@ -1684,7 +1697,9 @@ static void handle_read(int cnum, struct timeval* nowP)
 				connections[cnum].checksum = checksum;
 			}
 			else
+			{
 				bytes_handled = bytes_read;
+			}
 
 			if (connections[cnum].content_length != -1
 			    && connections[cnum].bytes >= connections[cnum].content_length)
@@ -1759,6 +1774,37 @@ static void close_connection(int cnum)
 		++http_status_counts[connections[cnum].http_status];
 
 	url_num = connections[cnum].url_num;
+
+	reports[url_num].turn = url_num;
+	if (!reports[url_num].http_status)
+	{
+		reports[url_num].http_status = connections[cnum].http_status;
+		reports[url_num].bytes = connections[cnum].bytes;
+	}
+	reports[url_num].fetches += 1;
+	if (connections[cnum].http_status != 200 && connections[cnum].http_status != 304)
+	{
+		reports[url_num].fails += 1;
+	}
+
+	struct timeval spent  = {
+		.tv_sec = connections[cnum].response_at.tv_sec - connections[cnum].request_at.tv_sec,
+		.tv_usec = connections[cnum].response_at.tv_usec - connections[cnum].request_at.tv_usec
+	};
+	reports[url_num].total_time.tv_sec += spent.tv_sec;
+	reports[url_num].total_time.tv_usec += spent.tv_usec;
+	if (reports[url_num].max_time.tv_sec < spent.tv_sec ||
+		(reports[url_num].max_time.tv_sec == spent.tv_sec && reports[url_num].max_time.tv_usec < spent.tv_usec))
+	{
+		reports[url_num].max_time = spent;
+	}
+	if (reports[url_num].min_time.tv_sec > spent.tv_sec ||
+		(reports[url_num].min_time.tv_sec == spent.tv_sec && reports[url_num].min_time.tv_usec > spent.tv_usec))
+	{
+		reports[url_num].min_time = spent;
+	}
+
+
 	if (do_checksum)
 	{
 		if (!urls[url_num].got_checksum)
@@ -1773,6 +1819,7 @@ static void close_connection(int cnum)
 				(void)fprintf(stderr, "%s: checksum wrong\n",
 				    urls[url_num].url_str);
 				++total_badchecksums;
+				++reports[url_num].fails;
 			}
 		}
 	}
@@ -1790,6 +1837,7 @@ static void close_connection(int cnum)
 				(void)fprintf(stderr, "%s: byte count wrong\n",
 				    urls[url_num].url_str);
 				++total_badbytes;
+				++reports[url_num].fails;
 			}
 		}
 	}
@@ -1862,6 +1910,26 @@ static void finish(struct timeval* nowP)
 	for (i = 0; i < 1000; ++i)
 		if (http_status_counts[i] > 0)
 			(void)printf("  code %03d -- %d\n", i, http_status_counts[i]);
+
+
+	(void)printf("-----------------------------------------------------------------\n");
+	(void)printf("%-16s%-10s%-10s%-12s%-10s%-14s%-8s%-10s%-8s%s\n", "pps", "requests", "fails", "process", "min", "max", "status", "doc-len", "weight", "url");
+	for (i = 0; i < num_urls; ++i)
+	{
+		(void)printf("\033[32;49;5m%-16f\033[0m%-10d\033[32;31;5m%-10d\033[0m%-12f%-10f%-14f%-8d%-10d%-8d%s\n",
+			reports[i].fetches / (reports[i].total_time.tv_sec + reports[i].total_time.tv_usec / 1000000.0),
+			reports[i].fetches,
+			reports[i].fails,
+			(reports[i].total_time.tv_sec + reports[i].total_time.tv_usec / 1000000.0) / reports[i].fetches,
+			reports[i].min_time.tv_sec + reports[i].min_time.tv_usec / 1000000.0,
+			reports[i].max_time.tv_sec + reports[i].max_time.tv_usec / 1000000.0,
+			reports[i].http_status,
+			reports[i].bytes,
+			urls[reports[i].turn].weight,
+			urls[reports[i].turn].url_str
+		);
+	}
+	(void)printf("-----------------------------------------------------------------\n");
 
 	tmr_destroy();
 #ifdef USE_SSL

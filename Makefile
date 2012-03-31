@@ -18,9 +18,9 @@
 BINDIR =	/usr/local/bin
 MANDIR =	/usr/local/man/man1
 CC =		gcc -Wall
-CFLAGS =	-O $(SRANDOM_DEFS) $(SSL_DEFS) $(SSL_INC)
+CFLAGS =	-g3 -O0 $(SRANDOM_DEFS) $(SSL_DEFS) $(SSL_INC)
 #CFLAGS =	-g $(SRANDOM_DEFS) $(SSL_DEFS) $(SSL_INC)
-LDFLAGS =	-s $(SSL_LIBS) $(SYSV_LIBS)
+LDFLAGS =	-g3 -s $(SSL_LIBS) $(SYSV_LIBS)
 #LDFLAGS =	-g $(SSL_LIBS) $(SYSV_LIBS)
 
 all:		http_load
