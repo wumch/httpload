@@ -28,6 +28,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <time.h>
 #include <string.h>
 #include <fcntl.h>
 #include <sys/types.h>
@@ -968,7 +969,7 @@ static void handle_connect(int cnum, struct timeval* nowP, int double_check)
 				break;
 				case EINVAL:
 					errlen = sizeof(err);
-					if ( getsockopt( connections[cnum].conn_fd, SOL_SOCKET, SO_ERROR, (void*) &err, &errlen ) < 0 )
+					if ( getsockopt( connections[cnum].conn_fd, SOL_SOCKET, SO_ERROR, (void*) &err, (socklen_t*)&errlen ) < 0 )
 					{
 						(void) fprintf(stderr, "%s: unknown connect error\n", urls[url_num].url_str );
 					}
