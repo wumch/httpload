@@ -72,6 +72,7 @@
 typedef struct
 {
 	char* url_str;
+	int weight;
 	int protocol;
 	char* hostname;
 	unsigned short port;
@@ -87,8 +88,10 @@ typedef struct
 	int got_checksum;
 	long checksum;
 } url;
+typedef unsigned long turn_t;
 static url* urls;
 static int num_urls, max_urls;
+static turn_t* urls_turn;
 
 typedef struct
 {
@@ -181,6 +184,8 @@ int total_timeouts, total_badbytes, total_badchecksums;
 
 static long start_interval, low_interval, high_interval, range_interval;
 
+static unsigned long wtotal;
+
 #ifdef USE_SSL
 static SSL_CTX* ssl_ctx = (SSL_CTX*) 0;
 static char* cipher = (char*) 0;
@@ -188,10 +193,11 @@ static char* cipher = (char*) 0;
 
 /* Forwards. */
 static void usage(void);
-static void read_url_file(char* url_file);
+static void read_url_file(const char* url_file);
 static void lookup_address(int url_num);
 static void read_sip_file(char* sip_file);
 static void start_connection(struct timeval* nowP);
+static int pick_url();
 static void start_socket(int url_num, int cnum, struct timeval* nowP);
 static void handle_connect(int cnum, struct timeval* nowP, int double_check);
 static void handle_read(int cnum, struct timeval* nowP);
@@ -468,6 +474,7 @@ int main(int argc, char** argv)
 		FD_ZERO( &rfdset);
 		FD_ZERO( &wfdset);
 		for (cnum = 0; cnum < max_connections; ++cnum)
+		{
 			switch (connections[cnum].conn_state)
 			{
 			case CNST_CONNECTING:
@@ -478,8 +485,9 @@ int main(int argc, char** argv)
 				FD_SET( connections[cnum].conn_fd, &rfdset);
 				break;
 			}
+		}
 		r = select(FD_SETSIZE, &rfdset, &wfdset, (fd_set*)0, tmr_timeout(&now));
-		if (r < 0)
+		if (__builtin_expect(r < 0, 0))
 		{
 			perror("select");
 			exit(1);
@@ -488,6 +496,7 @@ int main(int argc, char** argv)
 
 		/* Service them. */
 		for (cnum = 0; cnum < max_connections; ++cnum)
+		{
 			switch (connections[cnum].conn_state)
 			{
 			case CNST_CONNECTING:
@@ -500,6 +509,7 @@ int main(int argc, char** argv)
 					handle_read(cnum, &now);
 				break;
 			}
+		}
 		/* And run the timers. */
 		tmr_run(&now);
 	}
@@ -527,10 +537,13 @@ static void usage(void)
 	exit(1);
 }
 
-static void read_url_file(char* url_file)
+static void read_url_file(const char* url_file)
 {
 	FILE* fp;
+	unsigned int weight = 0;
 	char line[5000], hostname[5000];
+	memset(line, 0, sizeof(line));
+	memset(hostname, 0, sizeof(hostname));
 	char* http = "http://";
 	int http_len = strlen(http);
 #ifdef USE_SSL
@@ -549,21 +562,32 @@ static void read_url_file(char* url_file)
 
 	max_urls = 100;
 	urls = (url*)malloc_check(max_urls * sizeof(url));
+	urls_turn = (turn_t*)malloc_check(max_urls * sizeof(turn_t));
 	num_urls = 0;
-	while (fgets(line, sizeof(line), fp) != (char*)0)
+	wtotal = 0;
+	while (!feof(fp))
 	{
+		(void)fscanf(fp, "%d\t%s\n", &weight, line);
 		/* Nuke trailing newline. */
 		if (line[strlen(line) - 1] == '\n')
+		{
 			line[strlen(line) - 1] = '\0';
+		}
+
+		printf("%u,%s\n", weight, line);
+		wtotal += weight;
 
 		/* Check for room in urls. */
 		if (num_urls >= max_urls)
 		{
 			max_urls *= 2;
 			urls = (url*)realloc_check((void*)urls, max_urls * sizeof(url));
+			urls_turn = (turn_t*)realloc_check((void*)urls_turn, max_urls * sizeof(turn_t));
 		}
 
 		/* Add to table. */
+		urls_turn[num_urls] = wtotal;
+		urls[num_urls].weight = weight;
 		urls[num_urls].url_str = strdup_check(line);
 
 		/* Parse it. */
@@ -787,10 +811,11 @@ static void start_connection(struct timeval* nowP)
 
 	/* Find an empty connection slot. */
 	for (cnum = 0; cnum < max_connections; ++cnum)
-		if (connections[cnum].conn_state == CNST_FREE)
+	{
+		if (__builtin_expect(connections[cnum].conn_state == CNST_FREE, 1))
 		{
 			/* Choose a URL. */
-			url_num = ((unsigned long)random()) % ((unsigned int)num_urls);
+			url_num = pick_url();
 			/* Start the socket. */
 			start_socket(url_num, cnum, nowP);
 			if (connections[cnum].conn_state != CNST_FREE)
@@ -802,9 +827,26 @@ static void start_connection(struct timeval* nowP)
 			++fetches_started;
 			return;
 		}
+	}
 	/* No slots left. */
 	(void)fprintf(stderr, "%s: ran out of connection slots\n", argv0);
 	finish(nowP);
+}
+
+static int pick_url()
+{
+//	return ((unsigned long)random()) % ((unsigned int)num_urls);
+	unsigned long turn = ((unsigned long)random()) % ((unsigned int)wtotal);
+	int i = 0;
+	for ( ; i < num_urls; ++i)
+	{
+		if (turn < urls_turn[i])
+		{
+			return i;
+		}
+	}
+	printf("error: wrong turn of url weight\n");
+	exit(1);
 }
 
 static void start_socket(int url_num, int cnum, struct timeval* nowP)
@@ -906,26 +948,26 @@ static void handle_connect(int cnum, struct timeval* nowP, int double_check)
 		    (struct sockaddr*)&connections[cnum].sa, connections[cnum].sa_len)
 		    < 0)
 		{
-			switch(errno
-)			{
+			switch(errno)
+			{
 				case EISCONN:
 				/* Ok! */
 				break;
 				case EINVAL:
-				errlen = sizeof(err);
-				if ( getsockopt( connections[cnum].conn_fd, SOL_SOCKET, SO_ERROR, (void*) &err, &errlen ) < 0 )
-				(void) fprintf(
-					stderr, "%s: unknown connect error\n",
-					urls[url_num].url_str );
-				else
-				(void) fprintf(
-					stderr, "%s: %s\n", urls[url_num].url_str,
-					strerror( err ) );
-				close_connection( cnum );
+					errlen = sizeof(err);
+					if ( getsockopt( connections[cnum].conn_fd, SOL_SOCKET, SO_ERROR, (void*) &err, &errlen ) < 0 )
+					{
+						(void) fprintf(stderr, "%s: unknown connect error\n", urls[url_num].url_str );
+					}
+					else
+					{
+						(void) fprintf(stderr, "%s: %s\n", urls[url_num].url_str, strerror( err ));
+					}
+					close_connection( cnum );
 				return;
 				default:
-				perror( urls[url_num].url_str );
-				close_connection( cnum );
+					perror( urls[url_num].url_str );
+					close_connection( cnum );
 				return;
 			}
 		}
@@ -996,8 +1038,10 @@ static void handle_connect(int cnum, struct timeval* nowP, int double_check)
 #endif
 	}
 	else
+	{
 		bytes = snprintf(buf, sizeof(buf), "GET %.500s HTTP/1.0\r\n",
 		    urls[url_num].filename);
+	}
 	bytes += snprintf(&buf[bytes], sizeof(buf) - bytes, "Host: %s\r\n",
 	    urls[url_num].hostname);
 	bytes += snprintf(&buf[bytes], sizeof(buf) - bytes, "User-Agent: %s\r\n",
@@ -1014,6 +1058,7 @@ static void handle_connect(int cnum, struct timeval* nowP, int double_check)
 #else
 	r = write(connections[cnum].conn_fd, buf, bytes);
 #endif
+	printf("request\t%s\n", urls[url_num].url_str);
 	if (r < 0)
 	{
 		perror(urls[url_num].url_str);
