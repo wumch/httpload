@@ -1,23 +1,5 @@
-/**
- * sample for implements Tencent's TGW(Tencent Gateway) protocol.
- *
- * usage:
- * g++ -Wall -g3 -pthread -lboost_system echo_server.cpp -o echo_server
- * ./echo_server 8000
- *
- * the `extra_header` concept in TGW:
- * 	   extra_header is a http-protocol-like header which required Tencent's TGW-server.
- * 	   It must be sent by game-client once connection is setup.
- * 	   It should looks like "GET / HTTP/1.1\r\nHost: app26745-1.qzoneapp.com:8000\r\n\r\n".
- * 	   Usually, the content of extra_header is stationary for each server-process.
- *
- * The goal of this sample is to receive, authorize, and then remove extra_header
- * from received data, then provide your game-server with available data.
- *
- * All of majar changes are inside <class session>.
- * The work follow of <session> is:
- * start() => read_header() => auth_header() => receive/send loops.
- */
+
+#pragma once
 
 #include <cstddef>
 #include <cstdlib>
@@ -49,23 +31,26 @@
 #	error "macro name GOL_STRLEN is taken."
 #endif
 
-namespace {
+namespace gonline {
+namespace tgw {
 
-namespace bap = ::boost::asio::placeholders;
-typedef uint16_t	port_t;
-typedef std::size_t	buf_size_t;
-typedef ssize_t		buf_ssize_t;
-typedef char		byte_t;		// typeof(`element of socket stream`)
-
-class session
+template<typename SuccessCallback, typename ErrorCallback>
+class ExtraHeaderResolver
 {
+	namespace bap = ::boost::asio::placeholders;
 protected:
-	boost::asio::ip::tcp::socket sock;
+	typedef boost::asio::ip::tcp::socket Sock;
+	typedef uint16_t	port_t;
+	typedef std::size_t	buf_size_t;
+	typedef ssize_t		buf_ssize_t;
+	typedef char		byte_t;		// typeof(`element of socket stream`)
 
-	// this sample requires that buffer_.size() >= extra_header.size()
-	static const buf_size_t max_length = 1024;
-	byte_t buffer_[max_length];		// socket receive buffer
+	Sock& sock;
+	SuccessCallback&	success_callback;
+	ErrorCallback&		error_callback;
 
+	byte_t* buffer;
+	static const std::size_t buffer_cap;
 	buf_size_t bytes_buffered;	// count of elements which are already inside <data_>.
 
 #if defined(GOL_EXTRA_HEADER_CONST) && GOL_EXTRA_HEADER_CONST
@@ -73,19 +58,27 @@ protected:
 #else
 	static const buf_size_t extra_header_lpos = GOL_STRLEN("GET / HTTP/1.1\r\nHost:x.xx");
 	static const buf_size_t extra_header_rpos = extra_header_lpos + 500;
-	BOOST_STATIC_ASSERT(extra_header_rpos <= max_length - GOL_STRLEN("\r\n\r\n"));
+	BOOST_STATIC_ASSERT(extra_header_rpos <= buffer_cap - GOL_STRLEN("\r\n\r\n"));
 	BOOST_STATIC_ASSERT(extra_header_lpos <= extra_header_rpos);
 #endif
 
 public:
-	session(boost::asio::io_service& io_service)
-		: sock(io_service), bytes_buffered(0)
+	template<typename Buffer, buf_size_t _buffer_capacity>
+	ExtraHeaderResolver(Sock& _sock, Buffer& _buffer,
+		SuccessCallback _success_callback, ErrorCallback& _error_callback)
+		: sock(_sock), buffer(_buffer), buffer_cap(_buffer_capacity),
+		  success_callback(_success_callback), error_callback(_error_callback)
 	{
+
 	}
 
-	boost::asio::ip::tcp::socket& socket()
+	template<typename Buffer, buf_size_t _buffer_capacity>
+	ExtraHeaderResolver(Sock& _sock, Buffer& _buffer[_buffer_capacity],
+		SuccessCallback _success_callback, ErrorCallback& _error_callback)
+		: sock(_sock), buffer(_buffer), buffer_cap(_buffer_capacity),
+		  success_callback(_success_callback), error_callback(_error_callback)
 	{
-		return sock;
+
 	}
 
 	void start()
@@ -100,38 +93,6 @@ public:
 	}
 
 protected:
-	void send(const boost::system::error_code& error, const buf_size_t bytes_transferred)
-	{
-		std::cout << "received [" << *reinterpret_cast<uint32_t*>(buffer_) << "]" << std::endl;
-		if (!error)
-		{
-			boost::asio::async_write(sock,
-			    boost::asio::buffer(buffer_, bytes_transferred),
-			    boost::bind(&session::receive, this, bap::error)
-			);
-		}
-		else
-		{
-			delete this;
-		}
-	}
-
-	void receive(const boost::system::error_code& error)
-	{
-		std::cout << "attempt to receive data..." << std::endl;
-		if (!error)
-		{
-			sock.async_read_some(
-			    boost::asio::buffer(buffer_, max_length),
-			    boost::bind(&session::send, this, bap::error, bap::bytes_transferred)
-			);
-		}
-		else
-		{
-			delete this;
-		}
-	}
-
 	/**
 	 * wait for `extra_header` from client.
 	 * we should call this once connection is built.
@@ -139,8 +100,8 @@ protected:
 	void receive_header()
 	{
 		sock.async_read_some(
-			boost::asio::buffer(buffer_ + bytes_buffered, max_length - bytes_buffered),
-			boost::bind(&session::auth_header, this, bap::error, bap::bytes_transferred)
+			boost::asio::buffer(buffer + bytes_buffered, buffer_cap - bytes_buffered),
+			boost::bind(&ExtraHeaderResolver::auth_header, this, bap::error, bap::bytes_transferred)
 		);
 	}
 
@@ -166,31 +127,30 @@ protected:
 					// so that you can use this `data_` as you used to do.
 					if (bytes_buffered == static_cast<buf_size_t>(extra_header_len))		// received bytes are exactly the `extra_header`.
 					{
-						bytes_buffered = 0;
-						receive(error);
+						success_callback(bytes_buffered = 0);
 					}
 					else	// some additional bytes behind `extra_header`.
 					{
 						bytes_buffered -= extra_header_len;
 						if (bytes_buffered <= static_cast<buf_size_t>(extra_header_len))
 						{
-							std::memcpy(buffer_, buffer_ + extra_header_len, bytes_buffered);
+							std::memcpy(buffer, buffer + extra_header_len, bytes_buffered);
 						}
 						else
 						{
 							// these memcpy() calls can be optimized out if your `buffer_` has `offset` supported:
-							byte_t tmp_data[max_length];
-							std::memcpy(tmp_data, buffer_ + extra_header_len, bytes_buffered);
-							std::memcpy(buffer_, tmp_data, bytes_buffered);
+							byte_t tmp_data[buffer_cap];
+							std::memcpy(tmp_data, buffer + extra_header_len, bytes_buffered);
+							std::memcpy(buffer, tmp_data, bytes_buffered);
 						}
 						std::cout << "header is correct, " << bytes_buffered << " bytes remains in buffer..." << std::endl;
-						send(error, bytes_buffered);	// handle additional bytes.
+						success_callback(bytes_buffered);	// handle additional bytes.
 					}
 				}
 				else	// received extra_header is wrong, just disconnect.
 				{
 					std::cerr << "received wrong extra_header, disconnecting." << std::endl;
-					delete this;
+					error_callback(error);
 				}
 			}
 			else	// extra_header is incomplete, continue with receive_header().
@@ -203,7 +163,7 @@ protected:
 		else	// socket error
 		{
 			std::cerr << "socket error, disconnecting." << std::endl;
-			delete this;
+			error_callback(error);
 		}
 	}
 
@@ -222,9 +182,9 @@ protected:
 //* The first implemention:
 		return recheck(
 			boost::find_first<const boost::iterator_range<const byte_t*>, const char*>(
-				boost::make_iterator_range(buffer_ + extra_header_lpos, buffer_ + std::min(bytes_buffered, extra_header_rpos)),
+				boost::make_iterator_range(buffer + extra_header_lpos, buffer + std::min(bytes_buffered, extra_header_rpos)),
 				"\r\n\r\n"
-			).begin() - buffer_
+			).begin() - buffer
 		);
 // end The first implemention */
 
@@ -273,80 +233,10 @@ protected:
 	// to make auth_header() contains no temporary-variables, so that auth_header() can be inlined.
 	__attribute__((always_inline)) buf_ssize_t recheck(const buf_size_t pos) const
 	{
-		return pos > max_length ? -1 : (pos + GOL_STRLEN("\r\n\r\n"));
+		return pos > buffer_cap ? -1 : (pos + GOL_STRLEN("\r\n\r\n"));
 	}
 #endif
-};	// end class session
+};	// end class ExtraHeaderResolver
 
-#if defined(GOL_EXTRA_HEADER_CONST) && GOL_EXTRA_HEADER_CONST
-std::string session::extra_header;
-#endif
-
-// <server>, for accepts in-coming connections, and constructs <session>s.
-class server
-{
-private:
-	boost::asio::io_service& io_service_;
-	boost::asio::ip::tcp::acceptor acceptor_;
-
-public:
-	// NOTE: TGW requires that we must bind to 0.0.0.0, specified interface is not allowed.
-	server(boost::asio::io_service& io_service, const port_t port)
-		: io_service_(io_service),
-		  acceptor_(io_service,boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), port))
-	{
-		session* new_session = new session(io_service_);
-		acceptor_.async_accept(
-		    new_session->socket(),
-		    boost::bind(&server::handle_accept, this, new_session, bap::error)
-		);
-	}
-
-	void handle_accept(session* new_session,
-	    const boost::system::error_code& error)
-	{
-		if (!error)
-		{
-			new_session->start();
-			new_session = new session(io_service_);
-			acceptor_.async_accept(
-			    new_session->socket(),
-			    boost::bind(&server::handle_accept, this, new_session, bap::error)
-			);
-		}
-		else
-		{
-			delete new_session;
-		}
-	}
-};	// end class server
-
-}	// end namespace
-
-int main(int argc, char* argv[])
-{
-	try
-	{
-		if (argc != 2)
-		{
-			std::cerr << "Usage: " << argv[0] << " <port>" << std::endl;
-			return 1;
-		}
-
-#if defined(GOL_EXTRA_HEADER_CONST) && GOL_EXTRA_HEADER_CONST
-		session::reset_extra_header("app26745-4.qzoneapp.com", boost::lexical_cast<port_t>(argv[1]));
-#endif
-
-		boost::asio::io_service io_service;
-		server s(io_service, boost::lexical_cast<port_t>(argv[1]));
-
-		io_service.run();
-	}
-	catch (const std::exception& e)
-	{
-		std::cerr << "Exception: " << e.what() << "\n";
-		return 1;
-	}
-
-	return 0;
-}
+}	// end namespace tgw
+}	// end namespace gonline
