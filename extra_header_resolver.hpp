@@ -8,7 +8,7 @@
  * compile (requires -lboost_system -pthread, DEBUG=0,1,>=2 supported):
  * g++ -DDEBUG=2 -Wall -g3 -lboost_system -pthread your_program.cpp -o your_program
  *
-Semantics (strongly exception-safe, <just IMO ^_^>):
+Semantics (it's exception-safe):
 
 void resolve_extra_header(
 	// socket, supports <boost::asio::ip::tcp::socket> obly.

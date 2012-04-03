@@ -3,20 +3,26 @@
 import sys
 import socket, struct
 
-addr = ('localhost', 10086)
-header = '''GET / HTTP/1.1\r\nHost: app26745-4.qzoneapp.com:8000\r\n\r\n'''
+header = '''GET / HTTP/1.1\r\nHost: %s:%d\r\n\r\n'''
 
-def travel(data):
+def travel(data, split = len(header)):
     global addr, header
     packer = struct.Struct('I')
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect(addr)
-    sock.send(struct.pack('%ds' % len(header), header) + packer.pack(data))
-    reply = sock.recv(4)
+    sock.send(struct.pack('%ds' % len(header[:split]), header[:split]))
+    print("\033[32;34;5msent:\033[0m [\033[32;49;5m%s\033[0m]" % header[:split].replace('\r\n', '\\r\\n'))
+    sock.send(struct.pack('%ds' % len(header[split:]), header[split:]) + packer.pack(data))
+    print("\033[32;34;5msent:\033[0m [\033[32;49;5m%s\033[0m] \033[32;34;5mand\033[0m [\033[32;31;5m%d\033[0m]" % (header[split:].replace('\r\n', '\\r\\n'), data))
+    reply = sock.recv(packer.size)
     return packer.unpack(reply)[0]
 
 if __name__ == '__main__':
-    addr = (sys.argv[1], int(sys.argv[2])) if len(sys.argv) == 3 else ('localhost', 10086)
-    data = 26745    # `travel()` require an int32_t
-    print "sent: %d, received: %d" %(data, travel(data)),
+    if len(sys.argv) < 3:
+        print("usage: %s <domain> <port>")
+    else:
+        addr = (sys.argv[1], int(sys.argv[2]))
+        header %= addr
+        data = 26745    # `travel()` require an int32_t
+        print("\033[32;34;5msent:\033[0m [\033[32;31;5m%d\033[0m], \033[32;34;5mreceived:\033[0m [\033[32;31;5m%d\033[0m]" %(data, travel(data, len(header) - 10)))
 
