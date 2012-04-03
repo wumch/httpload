@@ -3,7 +3,7 @@
 import sys
 import socket, struct
 
-header = '''GET / HTTP/1.1\r\nHost: %s:%d\r\n\r\n'''
+header = '''GETd / HTTP/1.1\r\nHost: %s:%d\r\n\r\n'''
 
 def travel(data, split = len(header)):
     global addr, header
@@ -19,7 +19,7 @@ def travel(data, split = len(header)):
 
 if __name__ == '__main__':
     if len(sys.argv) < 3:
-        print("usage: %s <domain> <port>")
+        print("usage: %s <domain> <port>" % sys.argv[0])
     else:
         addr = (sys.argv[1], int(sys.argv[2]))
         header %= addr

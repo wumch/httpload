@@ -3,12 +3,19 @@
  * implements Tencent's TGW(Tencent Gateway) protocol.
  *
  * include (header only, requires boost):
- * #include "extra_header_resolver.hpp"
+// optional debug level. can be 0,1,2. if not specified, we will deduce a level by check NDEBUG/DEBUG.
+#define GOL_DEBUG	2
+// optional flag, indicates whether we should be compatible with old-version-protocol or not. default is 1.
+#define GOL_OLD_VER_COMPATIBLE	0
+// optional, indicates max-length of `extra-header`, default is 200. for optimize performance. default is 200.
+#define GOL_EXTRA_HEADER_MAX_LENGTH	200
+#include "extra_header_resolver.hpp"
+
  *
  * compile (requires -lboost_system -pthread, DEBUG=0,1,>=2 supported):
- * g++ -DDEBUG=2 -Wall -g3 -lboost_system -pthread your_program.cpp -o your_program
+ * g++ -DDEBUG=2 -DGOL_OLD_VER_COMPATIBLE=0 -Wall -g3 -lboost_system -pthread your_program.cpp -o your_program
  *
-Semantics (it's exception-safe):
+Semantics (exception-safe guaranteed):
 
 void resolve_extra_header(
 	// socket, supports <boost::asio::ip::tcp::socket> obly.
@@ -85,17 +92,23 @@ gonline::tgw::resolve_extra_header(
 #include <boost/lexical_cast.hpp>
 #include <boost/enable_shared_from_this.hpp>
 
-#ifndef GOL_DEBUG
-#	if defined(DEBUG) && !defined(NDEBUG)
+#if !defined(GOL_DEBUG) && !defined(NDEBUG)
+#	if defined(DEBUG)
 #		define GOL_DEBUG	DEBUG
 #	else
 #		define GOL_DEBUG	0
 #	endif
 #endif
 
-// flag indicates whether make compatible with old-version-protocol(no TGW-protocol) or not.
-#ifndef GOL_TGW_VER_COMPATIBLE
-#	define GOL_TGW_VER_COMPATIBLE 1
+/*
+ * flag indicates whether we should be compatible with old-version-protocol or not.
+ * optional value:
+ * 0 :	incompatible. allows only ``new version``.
+ * 1 :	compatible, but optimize for ``new version``. this is default.
+ * 2 :	compatible, and optimize for ``old version``.
+ */
+#ifndef GOL_OLD_VER_COMPATIBLE
+#	define GOL_OLD_VER_COMPATIBLE 1
 #endif
 
 // flag indicates whether the content of `extra_header` is constant in run-time or not.
@@ -114,12 +127,12 @@ gonline::tgw::resolve_extra_header(
 
 #if defined(OC_BLACK) || defined(GOL_OC_RED) || defined(GOL_OC_GREEN) ||	\
 	defined(GOL_OUT) || defined(GOL_SAY) || defined(GOL_ERR) ||				\
-	defined(GOL_LIKELY) || defined(GOL_UNLIKELY) ||	\
-	defined(GOL_MIN) ||								\
-	defined(GOL_STRLEN) ||							\
-	defined(GOL_EXTRA_HEADER_TAIL) ||				\
-	defined(GOL_EXTRA_HEADER_MIN_LENGTH) ||			\
-	defined(GOL_VER_IDEC)
+	defined(GOL_LIKELY) || defined(GOL_UNLIKELY) ||							\
+	defined(GOL_MIN) ||														\
+	defined(GOL_STRLEN) ||													\
+	defined(GOL_EXTRA_HEADER_TAIL) ||										\
+	defined(GOL_EXTRA_HEADER_MIN_LENGTH) ||									\
+	defined(GOL_VER_IDEC) || defined(GOL_VER_PREFER_OLD)
 #	error "macro name GOL_xxx... is taken."
 #endif
 
@@ -152,6 +165,14 @@ gonline::tgw::resolve_extra_header(
 #else
 #	define GOL_LIKELY(expr) 	(expr)
 #	define GOL_UNLIKELY(expr)	(expr)
+#endif
+
+#if defined(GOL_OLD_VER_COMPATIBLE) && GOL_OLD_VER_COMPATIBLE
+#	if GOL_OLD_VER_COMPATIBLE != 1
+#		define GOL_VER_PREFER_OLD GOL_LIKELY
+#	else
+#		define GOL_VER_PREFER_OLD GOL_UNLIKELY
+#	endif
 #endif
 
 namespace gonline {
@@ -221,10 +242,10 @@ protected:
 		if (GOL_LIKELY(!error))
 		{
 			bytes_buffered += bytes_transferred;
-#if defined(GOL_TGW_VER_COMPATIBLE) && GOL_TGW_VER_COMPATIBLE
-			if (GOL_LIKELY(bytes_buffered >= GOL_STRLEN(GOL_VER_IDEC)))
+#if defined(GOL_OLD_VER_COMPATIBLE) && GOL_OLD_VER_COMPATIBLE
+			if (GOL_VER_PREFER_OLD(!!std::memcmp(GOL_VER_IDEC, buffer, GOL_STRLEN(GOL_VER_IDEC))))
 			{
-				if (std::memcmp(GOL_VER_IDEC, buffer, GOL_STRLEN(GOL_VER_IDEC)))
+				if (GOL_LIKELY(bytes_buffered >= GOL_STRLEN(GOL_VER_IDEC)))
 				{
 					GOL_ERR("received old-version-protocol packet, forwards to SuccessCallback")
 					return (void)success_callback(error, bytes_buffered);
@@ -261,7 +282,7 @@ protected:
 						else
 						{
 							// these memcpy() calls can be optimized out if your `buffer_` has `offset` supported:
-							byte_t tmp_data[buffer_capacity];
+							byte_t tmp_data[bytes_buffered];
 							std::memcpy(tmp_data, buffer + extra_header_len, bytes_buffered);
 							std::memcpy(buffer, tmp_data, bytes_buffered);
 						}
@@ -362,6 +383,7 @@ protected:
 	static const std::size_t buffer_capacity = _buffer_capacity;
 	BOOST_STATIC_ASSERT(buffer_capacity >= GOL_EXTRA_HEADER_MIN_LENGTH);
 	BOOST_STATIC_ASSERT(buffer_capacity > GOL_STRLEN(GOL_EXTRA_HEADER_TAIL));
+	BOOST_STATIC_ASSERT(buffer_capacity >= GOL_STRLEN(GOL_VER_IDEC));
 	buf_size_t bytes_buffered;	// count of elements which are already inside <data_>.
 
 	SuccessCallback	success_callback;

@@ -8,12 +8,42 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
+/* Usage:
+
+g++ -Wall -g3 -lboost_system -pthread async_tcp_echo_server.cpp -o async_tcp_echo_server
+./async_tcp_echo_server 8000
+
+///// and then test it with:
+./echo_client localhost 8000
+
+*/
+
 #include <cstdlib>
 #include <iostream>
 #include <boost/bind.hpp>
 #include <boost/asio.hpp>
 #include <boost/shared_ptr.hpp>
+
+// **************** import <gonline::tgw::ExtraHeaderResolver>: ****************
+
+// optional debug level. can be 0,1,2. if not specified, we will deduce a level by check NDEBUG/DEBUG.
+#define GOL_DEBUG	2		// set debug-level to 2.
+
+/*
+ * optional flag, indicates whether we should be compatible with old-version-protocol or not.
+ * optional value:
+ * 0 :	incompatible. allows only ``new version``.
+ * 1 :	compatible, but optimize for ``new version``. this is default.
+ * 2 :	compatible, and optimize for ``old version``.
+ */
+#define GOL_OLD_VER_COMPATIBLE	1		// make old-version-protocol Incompatible, can speed up a bit.
+
+// optional, indicates max-length of `extra-header`, default is 200. for optimize performance. default is 200.
+#define GOL_EXTRA_HEADER_MAX_LENGTH	100		// tell <gonline::tgw::ExtraHeaderResolver> that your `extra-header` is not longer than 100 bytes.
+
 #include "extra_header_resolver.hpp"
+
+// ************** end import <gonline::tgw::ExtraHeaderResolver> ***************
 
 using boost::asio::ip::tcp;
 
@@ -32,14 +62,22 @@ public:
 
 	void start()
 	{
+		/*
+		 * instead of immediately enter  receive()/send()  loops,
+		 * we first call gonline::tgw::resolve_extra_header() here.
+		 */
 		//* usage 1:
 		gonline::tgw::resolve_extra_header(
 			socket_, data_,
+			// success-callback:
 		    boost::bind(&session::handle_read, this,
 		        boost::asio::placeholders::error,
 		        boost::asio::placeholders::bytes_transferred),
+		    // error-callback:
 			boost::bind(&session::on_extrea_header_error, this,
 				boost::asio::placeholders::error)
+			// optional timer:
+			// ,timer
 		);
 		// end usage 1 */
 
