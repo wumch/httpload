@@ -93,6 +93,11 @@ gonline::tgw::resolve_extra_header(
 #	endif
 #endif
 
+// flag indicates whether make compatible with old-version-protocol(no TGW-protocol) or not.
+#ifndef GOL_TGW_VER_COMPATIBLE
+#	define GOL_TGW_VER_COMPATIBLE 1
+#endif
+
 // flag indicates whether the content of `extra_header` is constant in run-time or not.
 #ifndef GOL_EXTRA_HEADER_CONST
 #	define GOL_EXTRA_HEADER_CONST 0
@@ -109,11 +114,12 @@ gonline::tgw::resolve_extra_header(
 
 #if defined(OC_BLACK) || defined(GOL_OC_RED) || defined(GOL_OC_GREEN) ||	\
 	defined(GOL_OUT) || defined(GOL_SAY) || defined(GOL_ERR) ||				\
+	defined(GOL_LIKELY) || defined(GOL_UNLIKELY) ||	\
 	defined(GOL_MIN) ||								\
 	defined(GOL_STRLEN) ||							\
 	defined(GOL_EXTRA_HEADER_TAIL) ||				\
 	defined(GOL_EXTRA_HEADER_MIN_LENGTH) ||			\
-	defined(GOL_LIKELY) || defined(GOL_UNLIKELY)
+	defined(GOL_VER_IDEC)
 #	error "macro name GOL_xxx... is taken."
 #endif
 
@@ -124,6 +130,7 @@ gonline::tgw::resolve_extra_header(
 #define GOL_MIN(a,b) 	((a) <= (b) ? (a) : (b))
 #define GOL_EXTRA_HEADER_TAIL		"\r\n\r\n"
 #define GOL_EXTRA_HEADER_MIN_LENGTH (GOL_STRLEN("GET / HTTP/1.1\r\nHost:x.xx") + GOL_STRLEN(GOL_EXTRA_HEADER_TAIL))
+#define GOL_VER_IDEC				"GET "
 
 #if GOL_DEBUG > 1
 #define GOL_OUT(ostream, msg) \
@@ -214,6 +221,16 @@ protected:
 		if (GOL_LIKELY(!error))
 		{
 			bytes_buffered += bytes_transferred;
+#if defined(GOL_TGW_VER_COMPATIBLE) && GOL_TGW_VER_COMPATIBLE
+			if (GOL_LIKELY(bytes_buffered >= GOL_STRLEN(GOL_VER_IDEC)))
+			{
+				if (std::memcmp(GOL_VER_IDEC, buffer, GOL_STRLEN(GOL_VER_IDEC)))
+				{
+					GOL_ERR("received old-version-protocol packet, forwards to SuccessCallback")
+					return (void)success_callback(error, bytes_buffered);
+				}
+			}
+#endif
 #if defined(GOL_EXTRA_HEADER_CONST) && GOL_EXTRA_HEADER_CONST
 			if (GOL_LIKELY(bytes_buffered >= extra_header.size()))	// extra_header is complete
 #else
