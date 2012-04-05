@@ -3,7 +3,7 @@
 import sys
 import socket, struct
 
-header = '''GETd / HTTP/1.1\r\nHost: %s:%d\r\n\r\n'''
+header = '''GET / HTTP/1.1\r\nHost: %s:%d\r\n\r\n'''
 
 def travel(data, split = len(header)):
     global addr, header

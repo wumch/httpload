@@ -202,6 +202,7 @@ public:
 		: sock(_sock), buffer(reinterpret_cast<byte_t*>(_buffer)), bytes_buffered(0),
 		  success_callback(_success_callback), error_callback(_error_callback)
 	{
+		GOL_SAY("resolving extra-header for client " << GOL_OC_GREEN(sock.remote_endpoint().address()))
 	}
 
 	void start()
