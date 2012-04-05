@@ -127,12 +127,12 @@ gonline::tgw::resolve_extra_header(
 
 #if defined(OC_BLACK) || defined(GOL_OC_RED) || defined(GOL_OC_GREEN) ||	\
 	defined(GOL_OUT) || defined(GOL_SAY) || defined(GOL_ERR) ||				\
-	defined(GOL_LIKELY) || defined(GOL_UNLIKELY) ||							\
+	defined(GOL_BLIKELY) || defined(GOL_BUNLIKELY) ||							\
 	defined(GOL_MIN) ||														\
 	defined(GOL_STRLEN) ||													\
 	defined(GOL_EXTRA_HEADER_TAIL) ||										\
 	defined(GOL_EXTRA_HEADER_MIN_LENGTH) ||									\
-	defined(GOL_VER_IDEC) || defined(GOL_VER_PREFER_OLD)
+	defined(GOL_VER_IDEC) || defined(GOL_VER_PREFER_OLD) || defined(GOL_VER_IDEC_LENGTH)
 #	error "macro name GOL_xxx... is taken."
 #endif
 
@@ -144,6 +144,7 @@ gonline::tgw::resolve_extra_header(
 #define GOL_EXTRA_HEADER_TAIL		"\r\n\r\n"
 #define GOL_EXTRA_HEADER_MIN_LENGTH (GOL_STRLEN("GET / HTTP/1.1\r\nHost:x.xx") + GOL_STRLEN(GOL_EXTRA_HEADER_TAIL))
 #define GOL_VER_IDEC				"GET "
+#define GOL_VER_IDEC_LENGTH			4
 
 #if GOL_DEBUG > 1
 #define GOL_OUT(ostream, msg) \
@@ -160,18 +161,20 @@ gonline::tgw::resolve_extra_header(
 #define GOL_DUMP(var)	GOL_OUT(std::cout, GOL_OC_BLUE(#var) << ": " << GOL_OC_GREEN(var))
 
 #ifdef __GNUC__
-#	define GOL_LIKELY(expr)		__builtin_expect((expr), 1)
-#	define GOL_UNLIKELY(expr)	__builtin_expect((expr), 0)
+#	define GOL_BLIKELY(expr)		__builtin_expect((expr), 1)
+#	define GOL_BUNLIKELY(expr)	__builtin_expect((expr), 0)
+#	define GOL_ALWAYS_INLINE	__attribute__((always_inline))
 #else
-#	define GOL_LIKELY(expr) 	(expr)
-#	define GOL_UNLIKELY(expr)	(expr)
+#	define GOL_BLIKELY(expr) 	(expr)
+#	define GOL_BUNLIKELY(expr)	(expr)
+#	define GOL_ALWAYS_INLINE	inline
 #endif
 
 #if defined(GOL_OLD_VER_COMPATIBLE) && GOL_OLD_VER_COMPATIBLE
 #	if GOL_OLD_VER_COMPATIBLE != 1
-#		define GOL_VER_PREFER_OLD GOL_LIKELY
+#		define GOL_VER_PREFER_OLD GOL_BLIKELY
 #	else
-#		define GOL_VER_PREFER_OLD GOL_UNLIKELY
+#		define GOL_VER_PREFER_OLD GOL_BUNLIKELY
 #	endif
 #endif
 
@@ -190,7 +193,8 @@ template<
 	typename SuccessCallback, typename ErrorCallback
 >
 class ExtraHeaderResolver
-	: public boost::enable_shared_from_this<ExtraHeaderResolver<Buffer, _buffer_capacity, SuccessCallback, ErrorCallback> >
+	: public boost::enable_shared_from_this<ExtraHeaderResolver<Buffer,
+	  	  _buffer_capacity, SuccessCallback, ErrorCallback> >
 {
 public:
 	ExtraHeaderResolver(Sock& _sock, Buffer (&_buffer)[_buffer_capacity],
@@ -209,7 +213,6 @@ public:
 	void stop()
 	{
 		sock.cancel();
-//		delete this;
 	}
 
 #if GOL_DEBUG
@@ -239,13 +242,13 @@ protected:
 	 */
 	void auth_header(const boost::system::error_code& error, const buf_size_t bytes_transferred)
 	{
-		if (GOL_LIKELY(!error))
+		if (GOL_BLIKELY(!error))
 		{
 			bytes_buffered += bytes_transferred;
 #if defined(GOL_OLD_VER_COMPATIBLE) && GOL_OLD_VER_COMPATIBLE
-			if (GOL_VER_PREFER_OLD(!!std::memcmp(GOL_VER_IDEC, buffer, GOL_STRLEN(GOL_VER_IDEC))))
+			if (GOL_VER_PREFER_OLD(is_old_version()))
 			{
-				if (GOL_LIKELY(bytes_buffered >= GOL_STRLEN(GOL_VER_IDEC)))
+				if (GOL_BLIKELY(bytes_buffered >= GOL_STRLEN(GOL_VER_IDEC)))
 				{
 					GOL_ERR("received old-version-protocol packet, forwarding to " << GOL_OC_BLUE("success_callback(error, ") << GOL_OC_RED(bytes_buffered) << GOL_OC_BLUE(")"))
 					return static_cast<void>(success_callback(error, bytes_buffered));
@@ -253,21 +256,21 @@ protected:
 			}
 #endif
 #if defined(GOL_EXTRA_HEADER_CONST) && GOL_EXTRA_HEADER_CONST
-			if (GOL_LIKELY(bytes_buffered >= extra_header.size()))	// extra_header is complete
+			if (GOL_BLIKELY(bytes_buffered >= extra_header.size()))	// extra_header is complete
 #else
 			GOL_DUMP(bytes_buffered)
 			GOL_DUMP(extra_header_lpos)
-			if (GOL_LIKELY(bytes_buffered >= extra_header_lpos))
+			if (GOL_BLIKELY(bytes_buffered >= extra_header_lpos))
 #endif
 			{
 				buf_ssize_t extra_header_len;
-				if (GOL_LIKELY((extra_header_len = resolve_extra_header()) >= 0))	// extra_header is correct.
+				if (GOL_BLIKELY((extra_header_len = resolve_extra_header()) >= 0))	// extra_header is correct.
 				{
 					// we'll remove extra_header from `data_`,
 					// so that you can use this `data_` as you used to do.
 					GOL_DUMP(bytes_buffered)
 					GOL_DUMP(extra_header_len)
-					if (GOL_LIKELY(bytes_buffered == static_cast<buf_size_t>(extra_header_len)))		// received bytes are exactly the `extra_header`.
+					if (GOL_BLIKELY(bytes_buffered == static_cast<buf_size_t>(extra_header_len)))		// received bytes are exactly the `extra_header`.
 					{
 						GOL_SAY(GOL_OC_GREEN("extra-header is exactly matched. forwarding to " << GOL_OC_BLUE("success_callback(error, 0)")))
 						return static_cast<void>(success_callback(error, bytes_buffered = 0));
@@ -275,7 +278,7 @@ protected:
 					else	// some additional bytes behind `extra_header`.
 					{
 						bytes_buffered -= extra_header_len;
-						if (GOL_LIKELY(bytes_buffered <= static_cast<buf_size_t>(extra_header_len)))
+						if (GOL_BLIKELY(bytes_buffered <= static_cast<buf_size_t>(extra_header_len)))
 						{
 							std::memcpy(buffer, buffer + extra_header_len, bytes_buffered);
 						}
@@ -316,11 +319,20 @@ protected:
 		}
 	}
 
+	GOL_ALWAYS_INLINE bool is_old_version() const
+	{
+#if defined(GOL_VER_IDEC_LENGTH) && (GOL_VER_IDEC_LENGTH == 4)
+		return *reinterpret_cast<int32_t*>(buffer) != *reinterpret_cast<const int32_t*>(GOL_VER_IDEC);
+#else
+		return !std::memcmp(GOL_VER_IDEC, buffer, GOL_STRLEN(GOL_VER_IDEC));
+#endif
+	}
+
 	/**
 	 * validate `received extra_header`
 	 * @return `received extra_header`.length, if it's correct, else -1.
 	 */
-	__attribute__((always_inline)) buf_ssize_t resolve_extra_header()
+	GOL_ALWAYS_INLINE buf_ssize_t resolve_extra_header()
 	{
 #if defined(GOL_EXTRA_HEADER_CONST) && GOL_EXTRA_HEADER_CONST
 		return extra_header.compare(0, extra_header.size(),
@@ -342,9 +354,9 @@ protected:
 		for (buf_size_t i = extra_header_lpos, end = std::min(bytes_buffered, extra_header_rpos);
 			i < end; ++i)
 		{
-			if (GOL_UNLIKELY(buffer_[i] == '\r'))
+			if (GOL_BUNLIKELY(buffer_[i] == '\r'))
 			{
-				if (GOL_LIKELY(buffer_[i + 1] == '\n' && buffer_[i + 2] == '\r' && buffer_[i + 3] == '\n'))
+				if (GOL_BLIKELY(buffer_[i + 1] == '\n' && buffer_[i + 2] == '\r' && buffer_[i + 3] == '\n'))
 				{
 					return i + 4;
 				}
@@ -370,7 +382,7 @@ protected:
 
 #if !(defined(GOL_EXTRA_HEADER_CONST) && GOL_EXTRA_HEADER_CONST)
 	// assist `tpl-expr` to make auth_header() contains no temporary-variables, so that auth_header() can be inlined.
-	__attribute__((always_inline)) buf_ssize_t recheck(const buf_size_t pos) const
+	GOL_ALWAYS_INLINE buf_ssize_t recheck(const buf_size_t pos) const
 	{
 		return pos < bytes_buffered ? (pos + GOL_STRLEN(GOL_EXTRA_HEADER_TAIL)) : -1;
 	}
