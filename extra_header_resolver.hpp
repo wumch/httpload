@@ -92,8 +92,8 @@ gonline::tgw::resolve_extra_header(
 #include <boost/lexical_cast.hpp>
 #include <boost/enable_shared_from_this.hpp>
 
-#if !defined(GOL_DEBUG) && !defined(NDEBUG)
-#	if defined(DEBUG)
+#ifndef GOL_DEBUG
+#	if defined(DEBUG) && !defined(NDEBUG)
 #		define GOL_DEBUG	DEBUG
 #	else
 #		define GOL_DEBUG	0
@@ -324,7 +324,7 @@ protected:
 #if defined(GOL_VER_IDEC_LENGTH) && (GOL_VER_IDEC_LENGTH == 4)
 		return *reinterpret_cast<int32_t*>(buffer) != *reinterpret_cast<const int32_t*>(GOL_VER_IDEC);
 #else
-		return !std::memcmp(GOL_VER_IDEC, buffer, GOL_STRLEN(GOL_VER_IDEC));
+		return std::memcmp(GOL_VER_IDEC, buffer, GOL_STRLEN(GOL_VER_IDEC));
 #endif
 	}
 
