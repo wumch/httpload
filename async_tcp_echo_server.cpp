@@ -10,7 +10,7 @@
 
 /* Usage:
 
-g++ -Wall -g3 -lboost_system -pthread async_tcp_echo_server.cpp -o async_tcp_echo_server
+g++ -DDEBUG=2 -Wall -g3 -lboost_system -pthread async_tcp_echo_server.cpp -o async_tcp_echo_server
 ./async_tcp_echo_server 8000
 
 ///// and then test it with:
@@ -38,7 +38,7 @@ g++ -Wall -g3 -lboost_system -pthread async_tcp_echo_server.cpp -o async_tcp_ech
  */
 #define GOL_OLD_VER_COMPATIBLE	1		// make old-version-protocol compatible.
 
-// optional, indicates max-length of `extra-header`, default is 100. for optimize performance. default is 200.
+// optional, specify max-length of `extra-header`, for optimize performance. default is 100.
 #define GOL_EXTRA_HEADER_MAX_LENGTH	80		// tell <gonline::tgw::ExtraHeaderResolver> that your `extra-header` is not longer than 100 bytes.
 
 #include "extra_header_resolver.hpp"
