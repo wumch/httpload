@@ -36,10 +36,10 @@ g++ -Wall -g3 -lboost_system -pthread async_tcp_echo_server.cpp -o async_tcp_ech
  * 1 :	compatible, but optimize for ``new version``. this is default.
  * 2 :	compatible, and optimize for ``old version``.
  */
-#define GOL_OLD_VER_COMPATIBLE	1		// make old-version-protocol Incompatible, can speed up a bit.
+#define GOL_OLD_VER_COMPATIBLE	1		// make old-version-protocol compatible.
 
-// optional, indicates max-length of `extra-header`, default is 200. for optimize performance. default is 200.
-#define GOL_EXTRA_HEADER_MAX_LENGTH	100		// tell <gonline::tgw::ExtraHeaderResolver> that your `extra-header` is not longer than 100 bytes.
+// optional, indicates max-length of `extra-header`, default is 100. for optimize performance. default is 200.
+#define GOL_EXTRA_HEADER_MAX_LENGTH	80		// tell <gonline::tgw::ExtraHeaderResolver> that your `extra-header` is not longer than 100 bytes.
 
 #include "extra_header_resolver.hpp"
 
@@ -64,7 +64,7 @@ public:
 	{
 		/*
 		 * instead of immediately enter  receive()/send()  loops,
-		 * we first call gonline::tgw::resolve_extra_header() here.
+		 * we firstly call gonline::tgw::resolve_extra_header() here.
 		 */
 		//* usage 1:
 		gonline::tgw::resolve_extra_header(
@@ -82,7 +82,7 @@ public:
 		// end usage 1 */
 
 		/* usage 2: (exits extra-header-resolver after timerout).
-		timer.expires_from_now(boost::posix_time::millisec(3000));
+		timer.expires_from_now(boost::posix_time::millisec(800));
 
 		gonline::tgw::resolve_extra_header(
 			socket_, data_,
@@ -98,6 +98,7 @@ public:
 
 	void on_extrea_header_error(const boost::system::error_code& error)
 	{
+		GOL_ERR(GOL_OC_BLUE(__FUNCTION__) << " called, error: " << error)
 		socket_.cancel();
 		delete this;
 	}
@@ -105,6 +106,7 @@ public:
 	void handle_read(const boost::system::error_code& error,
 	    size_t bytes_transferred)
 	{
+		GOL_SAY(GOL_OC_BLUE(__FUNCTION__) << " called, error: " << error)
 		if (!error)
 		{
 			boost::asio::async_write(
@@ -135,7 +137,7 @@ public:
 		}
 	}
 
-//private:
+private:
 	tcp::socket socket_;
 	boost::asio::deadline_timer timer;
 	static const std::size_t max_length = 1024;

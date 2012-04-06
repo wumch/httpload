@@ -89,7 +89,8 @@ gonline::tgw::resolve_extra_header(
 #include <boost/cstdint.hpp>
 #include <boost/asio.hpp>
 #include <boost/bind.hpp>
-#include <boost/lexical_cast.hpp>
+#include <boost/static_assert.hpp>
+#include <boost/noncopyable.hpp>
 #include <boost/enable_shared_from_this.hpp>
 
 #ifndef GOL_DEBUG
@@ -116,12 +117,13 @@ gonline::tgw::resolve_extra_header(
 #	define GOL_EXTRA_HEADER_CONST 0
 #endif
 
-#if !(defined(GOL_EXTRA_HEADER_CONST) && GOL_EXTRA_HEADER_CONST)
+#if defined(GOL_EXTRA_HEADER_CONST) && GOL_EXTRA_HEADER_CONST
+#	include <boost/lexical_cast.hpp>
+#else
 #	include <boost/algorithm/string/find.hpp>
-#	include <boost/static_assert.hpp>
 #	ifndef GOL_EXTRA_HEADER_MAX_LENGTH
 //#		define GOL_EXTRA_HEADER_MAX_LENGTH ULONG_LONG_MAX
-#		define GOL_EXTRA_HEADER_MAX_LENGTH 200
+#		define GOL_EXTRA_HEADER_MAX_LENGTH 100
 #	endif
 #endif
 
@@ -194,7 +196,8 @@ template<
 >
 class ExtraHeaderResolver
 	: public boost::enable_shared_from_this<ExtraHeaderResolver<Buffer,
-	  	  _buffer_capacity, SuccessCallback, ErrorCallback> >
+	  	  _buffer_capacity, SuccessCallback, ErrorCallback> >,
+	  public boost::noncopyable
 {
 public:
 	ExtraHeaderResolver(Sock& _sock, Buffer (&_buffer)[_buffer_capacity],
