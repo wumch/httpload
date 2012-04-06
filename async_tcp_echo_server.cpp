@@ -81,7 +81,7 @@ public:
 		);
 		// end usage 1 */
 
-		/* usage 2: (exits extra-header-resolver after timerout).
+		/* usage 2: (call on_extrea_header_error after timerout).
 		timer.expires_from_now(boost::posix_time::millisec(800));
 
 		gonline::tgw::resolve_extra_header(
