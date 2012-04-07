@@ -117,23 +117,24 @@ gonline::tgw::resolve_extra_header(
 #	define GOL_EXTRA_HEADER_CONST 0
 #endif
 
-#if defined(GOL_EXTRA_HEADER_CONST) && GOL_EXTRA_HEADER_CONST
+#if GOL_EXTRA_HEADER_CONST
 #	include <boost/lexical_cast.hpp>
+#	ifndef GOL_EXTRA_HEADER_VALIDATE
+#		define GOL_EXTRA_HEADER_VALIDATE 0
+#	endif
 #else
 #	include <boost/algorithm/string/find.hpp>
 #	ifndef GOL_EXTRA_HEADER_MAX_LENGTH
-//#		define GOL_EXTRA_HEADER_MAX_LENGTH ULONG_LONG_MAX
-#		define GOL_EXTRA_HEADER_MAX_LENGTH 100
+#		define GOL_EXTRA_HEADER_MAX_LENGTH 80
 #	endif
 #endif
 
-#if defined(OC_BLACK) || defined(GOL_OC_RED) || defined(GOL_OC_GREEN) ||	\
-	defined(GOL_OUT) || defined(GOL_SAY) || defined(GOL_ERR) ||				\
+#if defined(GOL_OC_BLACK) || defined(GOL_OC_RED) || defined(GOL_OC_GREEN) ||	\
+	defined(GOL_OUT) || defined(GOL_SAY) || defined(GOL_ERR) ||					\
 	defined(GOL_BLIKELY) || defined(GOL_BUNLIKELY) ||							\
-	defined(GOL_MIN) ||														\
-	defined(GOL_STRLEN) ||													\
-	defined(GOL_EXTRA_HEADER_TAIL) ||										\
-	defined(GOL_EXTRA_HEADER_MIN_LENGTH) ||									\
+	defined(GOL_STRLEN) ||														\
+	defined(GOL_EXTRA_HEADER_TAIL) ||											\
+	defined(GOL_EXTRA_HEADER_MIN_LENGTH) ||										\
 	defined(GOL_VER_IDEC) || defined(GOL_VER_PREFER_OLD) || defined(GOL_VER_IDEC_LENGTH)
 #	error "macro name GOL_xxx... is taken."
 #endif
@@ -142,18 +143,28 @@ gonline::tgw::resolve_extra_header(
 #define GOL_OC_RED(val)		"\033[32;31;5m" << val << "\033[0m"
 #define GOL_OC_GREEN(val)	"\033[32;49;5m" << val << "\033[0m"
 #define GOL_STRLEN(s) 	(sizeof(s) / sizeof(char) - 1)
-#define GOL_MIN(a,b) 	((a) <= (b) ? (a) : (b))
-#define GOL_EXTRA_HEADER_TAIL		"\r\n\r\n"
-#define GOL_EXTRA_HEADER_MIN_LENGTH (GOL_STRLEN("GET / HTTP/1.1\r\nHost:x.xx") + GOL_STRLEN(GOL_EXTRA_HEADER_TAIL))
-#define GOL_VER_IDEC				"GET "
-#define GOL_VER_IDEC_LENGTH			4
+#define GOL_MIN(a, b) ((a) <= (b) ? (a) : (b))
 
-#if GOL_DEBUG > 1
-#define GOL_OUT(ostream, msg) \
-	std::cout <<  GOL_OC_BLUE(__FILE__) << ":" << GOL_OC_BLUE(__LINE__) \
-	<< ":\t" << msg << std::endl;
-#elif GOL_DEBUG
-#	define GOL_OUT(ostream, msg)	ostream << msg << std::endl;
+#define GOL_EXTRA_HEADER_TAIL		"\r\n\r\n"
+#if !GOL_EXTRA_HEADER_CONST
+#	define GOL_EXTRA_HEADER_MIN_LENGTH	(GOL_STRLEN("GET / HTTP/1.1\r\nHost:x.xx") + GOL_STRLEN(GOL_EXTRA_HEADER_TAIL))
+#endif
+
+#if GOL_OLD_VER_COMPATIBLE
+#	define GOL_VER_IDEC					"GET "
+#	define GOL_VER_IDEC_LENGTH			4
+BOOST_STATIC_ASSERT(GOL_STRLEN(GOL_VER_IDEC) == GOL_VER_IDEC_LENGTH);
+#endif
+
+#if GOL_DEBUG
+#	include <iostream>
+#	if GOL_DEBUG > 1
+#		define GOL_OUT(ostream, msg) \
+			std::cout <<  GOL_OC_BLUE(__FILE__) << ":" << GOL_OC_BLUE(__LINE__) \
+			<< ":\t" << msg << std::endl;
+#	else
+#		define GOL_OUT(ostream, msg)	ostream << msg << std::endl;
+#	endif
 #else
 #	define GOL_OUT(ostream, msg)
 #endif
@@ -164,20 +175,18 @@ gonline::tgw::resolve_extra_header(
 
 #ifdef __GNUC__
 #	define GOL_BLIKELY(expr)		__builtin_expect((expr), 1)
-#	define GOL_BUNLIKELY(expr)	__builtin_expect((expr), 0)
-#	define GOL_ALWAYS_INLINE	__attribute__((always_inline))
+#	define GOL_BUNLIKELY(expr)		__builtin_expect((expr), 0)
+#	define GOL_ALWAYS_INLINE		__attribute__((always_inline))
 #else
 #	define GOL_BLIKELY(expr) 	(expr)
 #	define GOL_BUNLIKELY(expr)	(expr)
 #	define GOL_ALWAYS_INLINE	inline
 #endif
 
-#if defined(GOL_OLD_VER_COMPATIBLE) && GOL_OLD_VER_COMPATIBLE
-#	if GOL_OLD_VER_COMPATIBLE != 1
-#		define GOL_VER_PREFER_OLD GOL_BLIKELY
-#	else
-#		define GOL_VER_PREFER_OLD GOL_BUNLIKELY
-#	endif
+#if GOL_OLD_VER_COMPATIBLE == 1		// prefer new-version to old-version.
+#	define GOL_VER_PREFER_OLD GOL_BUNLIKELY
+#elif GOL_OLD_VER_COMPATIBLE == 2
+#	define GOL_VER_PREFER_OLD GOL_BLIKELY
 #endif
 
 namespace gonline {
@@ -196,8 +205,7 @@ template<
 >
 class ExtraHeaderResolver
 	: public boost::enable_shared_from_this<ExtraHeaderResolver<Buffer,
-	  	  _buffer_capacity, SuccessCallback, ErrorCallback> >,
-	  public boost::noncopyable
+	  	  _buffer_capacity, SuccessCallback, ErrorCallback> >
 {
 public:
 	ExtraHeaderResolver(Sock& _sock, Buffer (&_buffer)[_buffer_capacity],
@@ -216,6 +224,7 @@ public:
 	// stop by timeout
 	void stop()
 	{
+		GOL_SAY("calling " << GOL_OC_BLUE("gonline::tgw::" << __FUNCTION__))
 		sock.cancel();
 	}
 
@@ -249,7 +258,7 @@ protected:
 		if (GOL_BLIKELY(!error))
 		{
 			bytes_buffered += bytes_transferred;
-#if defined(GOL_OLD_VER_COMPATIBLE) && GOL_OLD_VER_COMPATIBLE
+#if GOL_OLD_VER_COMPATIBLE
 			if (GOL_VER_PREFER_OLD(is_old_version()))
 			{
 				if (GOL_BLIKELY(bytes_buffered >= GOL_STRLEN(GOL_VER_IDEC)))
@@ -259,7 +268,7 @@ protected:
 				}
 			}
 #endif
-#if defined(GOL_EXTRA_HEADER_CONST) && GOL_EXTRA_HEADER_CONST
+#if GOL_EXTRA_HEADER_CONST
 			if (GOL_BLIKELY(bytes_buffered >= extra_header.size()))	// extra_header is complete
 #else
 			GOL_DUMP(bytes_buffered)
@@ -293,11 +302,11 @@ protected:
 							std::memcpy(tmp_data, buffer + extra_header_len, bytes_buffered);
 							std::memcpy(buffer, tmp_data, bytes_buffered);
 						}
-						GOL_SAY(GOL_OC_GREEN("extra-header is correct,  forwarding to " << GOL_OC_BLUE("success_callback(error, ") << GOL_OC_RED(bytes_buffered) << GOL_OC_BLUE(")")))
-						return static_cast<void>(success_callback(error, (bytes_buffered)));	// handle additional bytes.
+						GOL_SAY(GOL_OC_GREEN("extra-header is correct, forwarding to " << GOL_OC_BLUE("success_callback(error, ") << GOL_OC_RED(bytes_buffered) << GOL_OC_BLUE(")")))
+						return static_cast<void>(success_callback(error, bytes_buffered));	// handle additional bytes.
 					}
 				}
-#if !(defined(GOL_EXTRA_HEADER_CONST) && GOL_EXTRA_HEADER_CONST)
+#if !GOL_EXTRA_HEADER_CONST
 				else if (bytes_buffered < extra_header_rpos)
 				{
 					GOL_ERR("received incomplete extra-header, cumulative length: " << bytes_buffered << ", continue with receive.")
@@ -306,7 +315,7 @@ protected:
 #endif
 				else	// received extra_header is wrong, just disconnect.
 				{
-					GOL_ERR("received wrong extra-header, forwarding to error_callback(error).")
+					GOL_ERR("received wrong extra-header, forwarding to " << GOL_OC_BLUE("error_callback(" << GOL_OC_RED(error) << ")"));
 					return static_cast<void>(error_callback(error));
 				}
 			}
@@ -318,12 +327,14 @@ protected:
 		}
 		else	// socket error
 		{
-			GOL_ERR("socket error, forwarding to error_callback(" << error << ")");
+			GOL_ERR("socket error occured: " << error.message() << ", forwarding to "
+				<< GOL_OC_BLUE("error_callback(") << GOL_OC_RED(error) << GOL_OC_BLUE(")"));
 			return static_cast<void>(error_callback(error));
 		}
 	}
 
-	GOL_ALWAYS_INLINE bool is_old_version() const
+#if GOL_OLD_VER_COMPATIBLE
+	GOL_ALWAYS_INLINE bool is_old_version()
 	{
 #if defined(GOL_VER_IDEC_LENGTH) && (GOL_VER_IDEC_LENGTH == 4)
 		return *reinterpret_cast<int32_t*>(buffer) != *reinterpret_cast<const int32_t*>(GOL_VER_IDEC);
@@ -331,23 +342,36 @@ protected:
 		return std::memcmp(GOL_VER_IDEC, buffer, GOL_STRLEN(GOL_VER_IDEC));
 #endif
 	}
+#endif
 
 	/**
 	 * validate `received extra_header`
 	 * @return `received extra_header`.length, if it's correct, else -1.
 	 */
-	GOL_ALWAYS_INLINE buf_ssize_t resolve_extra_header()
+	GOL_ALWAYS_INLINE buf_ssize_t resolve_extra_header() const
 	{
-#if defined(GOL_EXTRA_HEADER_CONST) && GOL_EXTRA_HEADER_CONST
-		return extra_header.compare(0, extra_header.size(),
-			buffer, extra_header.size()) == 0 ? extra_header.size() : -1;
+#if GOL_EXTRA_HEADER_CONST
+#	if GOL_EXTRA_HEADER_VALIDATE == 1
+		return GOL_BLIKELY(*reinterpret_cast<int32_t*>(buffer + i) ==
+			*reinterpret_cast<const int32_t*>(GOL_EXTRA_HEADER_TAIL)) ?
+			extra_header.size() : -1;
+#	elif GOL_EXTRA_HEADER_VALIDATE == 2
+		return GOL_BLIKELY(extra_header.compare(0, extra_header.size(),
+			buffer, extra_header.size()) == 0) ?
+			extra_header.size() : -1;
+#	else
+		return extra_header.size();
+#	endif
 #else
 		// in this case, we just find the first position of "\r\n\r\n" in `buffer_`:
 		// length of the shortest `extra_header`
 //* The first implemention:
 		return recheck(
 			boost::find_first<const boost::iterator_range<const byte_t*>, const char*>(
-				boost::make_iterator_range(buffer + extra_header_lpos, buffer + GOL_MIN(bytes_buffered, extra_header_rpos)),
+				boost::make_iterator_range(
+					buffer + extra_header_lpos,
+					buffer + std::min(bytes_buffered, static_cast<const buf_size_t>(extra_header_rpos))
+				),
 				GOL_EXTRA_HEADER_TAIL
 			).begin() - buffer
 		);
@@ -355,14 +379,19 @@ protected:
 
 /* The second implemention:
 		// this is another implemention which does not require boost.
-		for (buf_size_t i = extra_header_lpos, end = std::min(bytes_buffered, extra_header_rpos);
+		BOOST_STATIC_ASSERT(sizeof(int32_t) == GOL_STRLEN(GOL_EXTRA_HEADER_TAIL));
+		for (buf_size_t i = extra_header_lpos,
+			end = std::min(bytes_buffered - sizeof(int32_t),
+				static_cast<const buf_size_t>(extra_header_rpos));
 			i < end; ++i)
 		{
-			if (GOL_BUNLIKELY(buffer_[i] == '\r'))
+			if (GOL_BUNLIKELY(buffer[i] == '\r'))
 			{
-				if (GOL_BLIKELY(buffer_[i + 1] == '\n' && buffer_[i + 2] == '\r' && buffer_[i + 3] == '\n'))
+				// buffer out-of-index is prevented by `end`.
+				if (GOL_BLIKELY(*reinterpret_cast<int32_t*>(buffer + i) ==
+					*reinterpret_cast<const int32_t*>(GOL_EXTRA_HEADER_TAIL)))
 				{
-					return i + 4;
+					return i + GOL_STRLEN(GOL_EXTRA_HEADER_TAIL);
 				}
 			}
 		}
@@ -371,7 +400,7 @@ protected:
 #endif
 	}
 
-#if defined(GOL_EXTRA_HEADER_CONST) && GOL_EXTRA_HEADER_CONST
+#if GOL_EXTRA_HEADER_CONST
 	static void reset_extra_header(const std::string& domain, const port_t port)
 	{
 		extra_header.clear();
@@ -381,10 +410,11 @@ protected:
 		extra_header.append(":");
 		extra_header.append(boost::lexical_cast<std::string>(port));
 		extra_header.append(GOL_EXTRA_HEADER_TAIL);
+		assert(extra_header.size() <= buffer_capacity);
 	}
 #endif
 
-#if !(defined(GOL_EXTRA_HEADER_CONST) && GOL_EXTRA_HEADER_CONST)
+#if !GOL_EXTRA_HEADER_CONST
 	// assist `tpl-expr` to make auth_header() contains no temporary-variables, so that auth_header() can be inlined.
 	GOL_ALWAYS_INLINE buf_ssize_t recheck(const buf_size_t pos) const
 	{
@@ -394,28 +424,28 @@ protected:
 
 protected:
 	Sock& sock;
-
-	byte_t* buffer;
-	static const std::size_t buffer_capacity = _buffer_capacity;
-	BOOST_STATIC_ASSERT(buffer_capacity >= GOL_EXTRA_HEADER_MIN_LENGTH);
-	BOOST_STATIC_ASSERT(buffer_capacity > GOL_STRLEN(GOL_EXTRA_HEADER_TAIL));
-	BOOST_STATIC_ASSERT(buffer_capacity >= GOL_STRLEN(GOL_VER_IDEC));
+	byte_t* buffer;		// member-wise copyable
 	buf_size_t bytes_buffered;	// count of elements which are already inside <data_>.
 
 	SuccessCallback	success_callback;
 	ErrorCallback		error_callback;
 
-#if defined(GOL_EXTRA_HEADER_CONST) && GOL_EXTRA_HEADER_CONST
+	static const buf_size_t buffer_capacity = _buffer_capacity;
+	BOOST_STATIC_ASSERT(buffer_capacity >= GOL_STRLEN(GOL_EXTRA_HEADER_TAIL));
+
+#if GOL_EXTRA_HEADER_CONST
 	static std::string extra_header;	// content of extra_header.
 #else
-	static const std::size_t extra_header_lpos = GOL_EXTRA_HEADER_MIN_LENGTH;
-	static const std::size_t extra_header_rpos = GOL_MIN(GOL_EXTRA_HEADER_MAX_LENGTH, buffer_capacity - GOL_STRLEN(GOL_EXTRA_HEADER_TAIL));
+	BOOST_STATIC_ASSERT(buffer_capacity >= GOL_EXTRA_HEADER_MIN_LENGTH);
+	BOOST_STATIC_ASSERT(buffer_capacity >= GOL_STRLEN(GOL_VER_IDEC));
+	static const buf_size_t extra_header_lpos = GOL_EXTRA_HEADER_MIN_LENGTH;
+	static const buf_size_t extra_header_rpos = GOL_MIN(GOL_EXTRA_HEADER_MAX_LENGTH, buffer_capacity - GOL_STRLEN(GOL_EXTRA_HEADER_TAIL));
 	BOOST_STATIC_ASSERT(extra_header_rpos <= buffer_capacity - GOL_STRLEN(GOL_EXTRA_HEADER_TAIL));
 	BOOST_STATIC_ASSERT(extra_header_lpos <= extra_header_rpos);
 #endif
 };	// end class ExtraHeaderResolver
 
-#if defined(GOL_EXTRA_HEADER_CONST) && GOL_EXTRA_HEADER_CONST
+#if GOL_EXTRA_HEADER_CONST
 template<typename Buffer, buf_size_t _buffer_capacity,
 	typename SuccessCallback, typename ErrorCallback>
 std::string ExtraHeaderResolver<Buffer, _buffer_capacity,
@@ -454,7 +484,7 @@ inline void resolve_extra_header(
 {
 	typedef ExtraHeaderResolver<Buffer, buffer_capacity, SuccessCallback, ErrorCallback> EHR;
 	boost::shared_ptr<EHR> ehr(make_resolver(sock, buffer, scb, ecb));
-	timer.async_wait(boost::bind(&EHR::stop, ehr));
+//	timer.async_wait(boost::bind(&EHR::stop, ehr));
 	ehr->start();
 }
 
