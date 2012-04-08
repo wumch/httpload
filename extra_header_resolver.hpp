@@ -93,8 +93,8 @@ gonline::tgw::resolve_extra_header(
 #include <boost/enable_shared_from_this.hpp>
 
 #ifndef GOL_DEBUG
-#	if defined(DEBUG) && !defined(NDEBUG)
-#		define GOL_DEBUG	DEBUG
+#	if !defined(NDEBUG) && defined(DEBUG) && DEBUG
+#		define GOL_DEBUG	2
 #	else
 #		define GOL_DEBUG	0
 #	endif
@@ -160,8 +160,8 @@ BOOST_STATIC_ASSERT(GOL_STRLEN(GOL_VER_IDEC) == GOL_VER_IDEC_LENGTH);
 #	include <iostream>
 #	if GOL_DEBUG > 1
 #		define GOL_OUT(ostream, ...) \
-			std::cout <<  GOL_OC_BLUE(__FILE__) << ":" << GOL_OC_BLUE(__LINE__) \
-			<< ":\t" << __VA_ARGS__ << std::endl;
+			std::cout << std::unitbuf <<  GOL_OC_BLUE(__FILE__) << ":" << GOL_OC_BLUE(__LINE__) \
+			<< ":\t" << __VA_ARGS__ << std::endl << std::nounitbuf;
 #	else
 #		define GOL_OUT(ostream, ...)	ostream << __VA_ARGS__ << std::endl;
 #	endif
