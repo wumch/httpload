@@ -26,13 +26,13 @@ void resolve_extra_header(
 
 	// success callback, must be `copy-construct-able`.
 	// all of <func-pointer>, <boost::bind(...)>, <member-pointer> are ok.
-	// NOTE: pass in as:    <const SuccessCallback&>.
-	void (SuccessCallback*) (boost::system::error_code& error),
+	// NOTE: pass in as:    <const SuccessCb&>.
+	void (SuccessCb*) (boost::system::error_code& error),
 
 	// error callback, must be `copy-construct-able`.
 	// all of <func-pointer>, <boost::bind(...)>, <member-pointer> are ok.
-	// NOTE: pass in as:    <const ErrorCallback&>.
-	void (ErrorCallback*) (boost::system::error_code& error, const std::size_t bytes_buffered),
+	// NOTE: pass in as:    <const ErrorCb&>.
+	void (ErrorCb*) (boost::system::error_code& error, const std::size_t bytes_buffered),
 
 	// optional timer, indicates timeout-waiter.
 	// once wait timeout, we will do:
@@ -78,19 +78,18 @@ gonline::tgw::resolve_extra_header(
  * from received data, then provides you with actually available data.
  *
  * The work follow of <gonline::tgw::ExtraHeaderResolver>:
- * start() => receive_header() => auth_header() => SuccessCallback.
+ * start() => receive_header() => auth_header() => SuccessCb.
  */
 
 #pragma once
 
 #include <cstddef>
-#include <cstdlib>
+//#include <cstdlib>
 #include <string>
 #include <boost/cstdint.hpp>
 #include <boost/asio.hpp>
 #include <boost/bind.hpp>
 #include <boost/static_assert.hpp>
-#include <boost/noncopyable.hpp>
 #include <boost/enable_shared_from_this.hpp>
 
 #ifndef GOL_DEBUG
@@ -131,11 +130,12 @@ gonline::tgw::resolve_extra_header(
 
 #if defined(GOL_OC_BLACK) || defined(GOL_OC_RED) || defined(GOL_OC_GREEN) ||	\
 	defined(GOL_OUT) || defined(GOL_SAY) || defined(GOL_ERR) ||					\
-	defined(GOL_BLIKELY) || defined(GOL_BUNLIKELY) ||							\
+	defined(GOL_BLIKELY) || defined(GOL_BUNLIKELY) || defined(GOL_DEPRECATED) ||\
 	defined(GOL_STRLEN) ||														\
 	defined(GOL_EXTRA_HEADER_TAIL) ||											\
 	defined(GOL_EXTRA_HEADER_MIN_LENGTH) ||										\
-	defined(GOL_VER_IDEC) || defined(GOL_VER_PREFER_OLD) || defined(GOL_VER_IDEC_LENGTH)
+	defined(GOL_VER_IDEC) || defined(GOL_VER_IDEC_LENGTH) ||					\
+	defined(GOL_VER_PREFER_OLD)
 #	error "macro name GOL_xxx... is taken."
 #endif
 
@@ -159,28 +159,32 @@ BOOST_STATIC_ASSERT(GOL_STRLEN(GOL_VER_IDEC) == GOL_VER_IDEC_LENGTH);
 #if GOL_DEBUG
 #	include <iostream>
 #	if GOL_DEBUG > 1
-#		define GOL_OUT(ostream, msg) \
+#		define GOL_OUT(ostream, ...) \
 			std::cout <<  GOL_OC_BLUE(__FILE__) << ":" << GOL_OC_BLUE(__LINE__) \
-			<< ":\t" << msg << std::endl;
+			<< ":\t" << __VA_ARGS__ << std::endl;
 #	else
-#		define GOL_OUT(ostream, msg)	ostream << msg << std::endl;
+#		define GOL_OUT(ostream, ...)	ostream << __VA_ARGS__ << std::endl;
 #	endif
 #else
-#	define GOL_OUT(ostream, msg)
+#	define GOL_OUT(ostream, ...)
 #endif
 
-#define GOL_SAY(msg)	GOL_OUT(std::cout, msg)
-#define GOL_ERR(msg) 	GOL_OUT(std::cerr, GOL_OC_RED(msg))
-#define GOL_DUMP(var)	GOL_OUT(std::cout, GOL_OC_BLUE(#var) << ": " << GOL_OC_GREEN(var))
+#define GOL_SAY(...)	GOL_OUT(std::cout, __VA_ARGS__)
+#define GOL_ERR(...) 	GOL_OUT(std::cerr, GOL_OC_RED(__VA_ARGS__))
+#define GOL_DUMP(...)	GOL_OUT(std::cout, GOL_OC_BLUE(#__VA_ARGS__) << ": " << GOL_OC_GREEN(__VA_ARGS__))
 
 #ifdef __GNUC__
 #	define GOL_BLIKELY(expr)		__builtin_expect((expr), 1)
 #	define GOL_BUNLIKELY(expr)		__builtin_expect((expr), 0)
 #	define GOL_ALWAYS_INLINE		__attribute__((always_inline))
+#	define GOL_DEPRECATED			__attribute__((deprecated))
+#	define GOL_CEIL_DIV(val, base)	static_cast<typeof(val)>((val + base - 1) / base)
 #else
 #	define GOL_BLIKELY(expr) 	(expr)
 #	define GOL_BUNLIKELY(expr)	(expr)
 #	define GOL_ALWAYS_INLINE	inline
+#	define GOL_DEPRECATED
+#	define GOL_CEIL_DIV(val, base)	static_cast<std::size_t>((val + base - 1) / base)
 #endif
 
 #if GOL_OLD_VER_COMPATIBLE == 1		// prefer new-version to old-version.
@@ -199,19 +203,24 @@ typedef std::size_t	buf_size_t;
 typedef ssize_t		buf_ssize_t;
 typedef char		byte_t;		// typeof(`element of socket stream`)
 
-template<
-	typename Buffer, buf_size_t _buffer_capacity,
-	typename SuccessCallback, typename ErrorCallback
->
+/**
+ * <class ExtraHeaderResolver>
+ * copy, copy/move-construct, [move]operator= are all available.
+ */
+template<typename BufElem, buf_size_t _buffer_capacity,
+	typename SuccessCb, typename ErrorCb>
 class ExtraHeaderResolver
-	: public boost::enable_shared_from_this<ExtraHeaderResolver<Buffer,
-	  	  _buffer_capacity, SuccessCallback, ErrorCallback> >
+	: public boost::enable_shared_from_this<ExtraHeaderResolver<BufElem,
+	  	  _buffer_capacity, SuccessCb, ErrorCb> >
 {
 public:
-	ExtraHeaderResolver(Sock& _sock, Buffer (&_buffer)[_buffer_capacity],
-		const SuccessCallback& _success_callback, const ErrorCallback& _error_callback)
+	typedef ExtraHeaderResolver<BufElem, _buffer_capacity, SuccessCb, ErrorCb> type;
+	typedef BufElem Buffer[_buffer_capacity];
+
+	ExtraHeaderResolver(Sock& _sock, BufElem (&_buffer)[_buffer_capacity],
+		const SuccessCb& _success_cb, const ErrorCb& _error_cb)
 		: sock(_sock), buffer(reinterpret_cast<byte_t*>(_buffer)), bytes_buffered(0),
-		  success_callback(_success_callback), error_callback(_error_callback)
+		  success_cb(_success_cb), error_cb(_error_cb)
 	{
 		GOL_SAY("resolving extra-header for client " << GOL_OC_GREEN(sock.remote_endpoint().address()))
 	}
@@ -224,7 +233,7 @@ public:
 	// stop by timeout
 	void stop()
 	{
-		GOL_SAY("calling " << GOL_OC_BLUE("gonline::tgw::" << __FUNCTION__))
+		GOL_SAY("calling " << GOL_OC_BLUE("<gonline::tgw::ExtraHeaderResolver>::" << __FUNCTION__))
 		sock.cancel();
 	}
 
@@ -263,11 +272,14 @@ protected:
 			{
 				if (GOL_BLIKELY(bytes_buffered >= GOL_STRLEN(GOL_VER_IDEC)))
 				{
-					GOL_ERR("received old-version-protocol packet, forwarding to " << GOL_OC_BLUE("success_callback(error, ") << GOL_OC_RED(bytes_buffered) << GOL_OC_BLUE(")"))
-					return static_cast<void>(success_callback(error, bytes_buffered));
+					GOL_ERR("received old-version-protocol packet, forwarding to "
+						<< GOL_OC_BLUE("success_cb(error, ")
+						<< GOL_OC_RED(bytes_buffered) << GOL_OC_BLUE(")"))
+					return static_cast<void>(success_cb(error, bytes_buffered));
 				}
 			}
 #endif
+
 #if GOL_EXTRA_HEADER_CONST
 			if (GOL_BLIKELY(bytes_buffered >= extra_header.size()))	// extra_header is complete
 #else
@@ -283,10 +295,12 @@ protected:
 					// so that you can use this `data_` as you used to do.
 					GOL_DUMP(bytes_buffered)
 					GOL_DUMP(extra_header_len)
-					if (GOL_BLIKELY(bytes_buffered == static_cast<buf_size_t>(extra_header_len)))		// received bytes are exactly the `extra_header`.
+					// received bytes are exactly the `extra_header`.
+					if (GOL_BLIKELY(bytes_buffered == static_cast<buf_size_t>(extra_header_len)))
 					{
-						GOL_SAY(GOL_OC_GREEN("extra-header is exactly matched. forwarding to " << GOL_OC_BLUE("success_callback(error, 0)")))
-						return static_cast<void>(success_callback(error, bytes_buffered = 0));
+						GOL_SAY(GOL_OC_GREEN("extra-header is exactly matched. forwarding to "
+							<< GOL_OC_BLUE("success_cb(error, 0)")))
+						return static_cast<void>(success_cb(error, bytes_buffered = 0));
 					}
 					else	// some additional bytes behind `extra_header`.
 					{
@@ -302,21 +316,24 @@ protected:
 							std::memcpy(tmp_data, buffer + extra_header_len, bytes_buffered);
 							std::memcpy(buffer, tmp_data, bytes_buffered);
 						}
-						GOL_SAY(GOL_OC_GREEN("extra-header is correct, forwarding to " << GOL_OC_BLUE("success_callback(error, ") << GOL_OC_RED(bytes_buffered) << GOL_OC_BLUE(")")))
-						return static_cast<void>(success_callback(error, bytes_buffered));	// handle additional bytes.
+						GOL_SAY(GOL_OC_GREEN("extra-header is correct, forwarding to "
+							<< GOL_OC_BLUE("success_cb(error, ") << GOL_OC_RED(bytes_buffered) << GOL_OC_BLUE(")")))
+						return static_cast<void>(success_cb(error, bytes_buffered));	// handle additional bytes.
 					}
 				}
 #if !GOL_EXTRA_HEADER_CONST
 				else if (bytes_buffered < extra_header_rpos)
 				{
-					GOL_ERR("received incomplete extra-header, cumulative length: " << bytes_buffered << ", continue with receive.")
+					GOL_ERR("received incomplete extra-header, cumulative length: "
+						<< bytes_buffered << ", continue with receive.")
 					return static_cast<void>(receive_header());
 				}
 #endif
 				else	// received extra_header is wrong, just disconnect.
 				{
-					GOL_ERR("received wrong extra-header, forwarding to " << GOL_OC_BLUE("error_callback(" << GOL_OC_RED(error) << ")"));
-					return static_cast<void>(error_callback(error));
+					GOL_ERR("received wrong extra-header, forwarding to "
+						<< GOL_OC_BLUE("error_cb(" << GOL_OC_RED(error) << ")"));
+					return static_cast<void>(error_cb(error));
 				}
 			}
 			else	// extra_header is incomplete, continue with receive_header().
@@ -328,21 +345,21 @@ protected:
 		else	// socket error
 		{
 			GOL_ERR("socket error occured: " << error.message() << ", forwarding to "
-				<< GOL_OC_BLUE("error_callback(") << GOL_OC_RED(error) << GOL_OC_BLUE(")"));
-			return static_cast<void>(error_callback(error));
+				<< GOL_OC_BLUE("error_cb(") << GOL_OC_RED(error) << GOL_OC_BLUE(")"));
+			return static_cast<void>(error_cb(error));
 		}
 	}
 
 #if GOL_OLD_VER_COMPATIBLE
 	GOL_ALWAYS_INLINE bool is_old_version()
 	{
-#if defined(GOL_VER_IDEC_LENGTH) && (GOL_VER_IDEC_LENGTH == 4)
+#	if GOL_VER_IDEC_LENGTH == 4
 		return *reinterpret_cast<int32_t*>(buffer) != *reinterpret_cast<const int32_t*>(GOL_VER_IDEC);
-#else
+#	else
 		return std::memcmp(GOL_VER_IDEC, buffer, GOL_STRLEN(GOL_VER_IDEC));
-#endif
+#	endif
 	}
-#endif
+#endif	// GOL_OLD_VER_COMPATIBLE
 
 	/**
 	 * validate `received extra_header`
@@ -352,7 +369,8 @@ protected:
 	{
 #if GOL_EXTRA_HEADER_CONST
 #	if GOL_EXTRA_HEADER_VALIDATE == 1
-		return GOL_BLIKELY(*reinterpret_cast<int32_t*>(buffer + i) ==
+		return GOL_BLIKELY(*reinterpret_cast<int32_t*>(buffer +
+				(extra_header.size() - GOL_STRLEN(GOL_EXTRA_HEADER_TAIL))) ==
 			*reinterpret_cast<const int32_t*>(GOL_EXTRA_HEADER_TAIL)) ?
 			extra_header.size() : -1;
 #	elif GOL_EXTRA_HEADER_VALIDATE == 2
@@ -427,10 +445,11 @@ protected:
 	byte_t* buffer;		// member-wise copyable
 	buf_size_t bytes_buffered;	// count of elements which are already inside <data_>.
 
-	SuccessCallback	success_callback;
-	ErrorCallback		error_callback;
+	SuccessCb		success_cb;
+	ErrorCb		error_cb;
 
-	static const buf_size_t buffer_capacity = _buffer_capacity;
+public:
+	static const buf_size_t buffer_capacity = GOL_CEIL_DIV(_buffer_capacity * sizeof(BufElem), sizeof(byte_t));
 	BOOST_STATIC_ASSERT(buffer_capacity >= GOL_STRLEN(GOL_EXTRA_HEADER_TAIL));
 
 #if GOL_EXTRA_HEADER_CONST
@@ -446,48 +465,74 @@ protected:
 };	// end class ExtraHeaderResolver
 
 #if GOL_EXTRA_HEADER_CONST
-template<typename Buffer, buf_size_t _buffer_capacity,
-	typename SuccessCallback, typename ErrorCallback>
-std::string ExtraHeaderResolver<Buffer, _buffer_capacity,
-	SuccessCallback, ErrorCallback>::extra_header;
+template<typename BufElem, buf_size_t _buffer_capacity,
+	typename SuccessCb, typename ErrorCb>
+std::string ExtraHeaderResolver<BufElem, _buffer_capacity,
+	SuccessCb, ErrorCb>::extra_header;
 #endif
 
-template<typename Buffer, buf_size_t buffer_capacity,
-	typename SuccessCallback, typename ErrorCallback>
-inline ExtraHeaderResolver<Buffer, buffer_capacity,
-	SuccessCallback, ErrorCallback>*
+template<typename BufElem, buf_size_t buffer_capacity,
+	typename SuccessCb, typename ErrorCb>
+GOL_ALWAYS_INLINE ExtraHeaderResolver<BufElem, buffer_capacity,
+	SuccessCb, ErrorCb>*
 make_resolver(
-	Sock& sock, Buffer (&buffer)[buffer_capacity],
-	const SuccessCallback& scb, const ErrorCallback& ecb)
+	Sock& sock, BufElem (&buffer)[buffer_capacity],
+	const SuccessCb& scb, const ErrorCb& ecb)
 {
-	return new ExtraHeaderResolver<Buffer, buffer_capacity,
-		SuccessCallback, ErrorCallback>(sock, buffer, scb, ecb);
+	return new ExtraHeaderResolver<BufElem, buffer_capacity,
+		SuccessCb, ErrorCb>(sock, buffer, scb, ecb);
 }
 
-template<typename Buffer, buf_size_t buffer_capacity,
-	typename SuccessCallback, typename ErrorCallback>
+template<typename BufElem, buf_size_t buffer_capacity,
+	typename SuccessCb, typename ErrorCb>
 inline void resolve_extra_header(
-	Sock& sock, Buffer (&buffer)[buffer_capacity],
-	const SuccessCallback& scb, const ErrorCallback& ecb)
+	Sock& sock, BufElem (&buffer)[buffer_capacity],
+	const SuccessCb& scb, const ErrorCb& ecb)
 {
-	typedef ExtraHeaderResolver<Buffer, buffer_capacity, SuccessCallback, ErrorCallback> EHR;
+	typedef ExtraHeaderResolver<BufElem, buffer_capacity, SuccessCb, ErrorCb> EHR;
 	boost::shared_ptr<EHR> ehr(make_resolver(sock, buffer, scb, ecb));
 	ehr->start();
 }
 
-template<typename Buffer, buf_size_t buffer_capacity,
-	typename SuccessCallback, typename ErrorCallback>
+template<typename BufElem, buf_size_t buffer_capacity,
+	typename SuccessCb, typename ErrorCb>
 inline void resolve_extra_header(
-	Sock& sock, Buffer (&buffer)[buffer_capacity],
-	const SuccessCallback& scb, const ErrorCallback& ecb,
+	Sock& sock, BufElem (&buffer)[buffer_capacity],
+	const SuccessCb& scb, const ErrorCb& ecb,
 	boost::asio::deadline_timer& timer)
 {
-	typedef ExtraHeaderResolver<Buffer, buffer_capacity, SuccessCallback, ErrorCallback> EHR;
+	typedef ExtraHeaderResolver<BufElem, buffer_capacity, SuccessCb, ErrorCb> EHR;
 	boost::shared_ptr<EHR> ehr(make_resolver(sock, buffer, scb, ecb));
-//	timer.async_wait(boost::bind(&EHR::stop, ehr));
+	timer.async_wait(boost::bind(&EHR::stop, ehr));
 	ehr->start();
 }
 
+// for use dynamic buffer.
+template<typename BufElem, typename SuccessCb, typename ErrorCb>
+GOL_DEPRECATED inline void resolve_extra_header(
+	Sock& sock, BufElem* buf_ptr,
+	const SuccessCb& scb, const ErrorCb& ecb)
+{
+	typedef ExtraHeaderResolver<BufElem, GOL_CEIL_DIV(GOL_EXTRA_HEADER_MAX_LENGTH * sizeof(byte_t),
+		sizeof(BufElem)), SuccessCb, ErrorCb> EHR;
+	GOL_ERR("NOTE: not sure whether your `socket buffer` is as wide as `" << EHR::buffer_capacity << " bytes` or not.")
+	boost::shared_ptr<EHR> ehr(make_resolver(sock, *reinterpret_cast<typename EHR::Buffer*>(buf_ptr), scb, ecb));
+	ehr->start();
+}
+
+template<typename BufElem, typename SuccessCb, typename ErrorCb>
+GOL_DEPRECATED inline void resolve_extra_header(
+	Sock& sock, BufElem* buf_ptr,
+	const SuccessCb& scb, const ErrorCb& ecb,
+	boost::asio::deadline_timer& timer)
+{
+	typedef ExtraHeaderResolver<BufElem, GOL_CEIL_DIV(GOL_EXTRA_HEADER_MAX_LENGTH * sizeof(byte_t),
+		sizeof(BufElem)), SuccessCb, ErrorCb> EHR;
+	GOL_ERR("NOTE: not sure whether your `socket buffer` is as wide as `" << EHR::buffer_capacity << " bytes` or not.")
+	boost::shared_ptr<EHR> ehr(make_resolver(sock, *reinterpret_cast<typename EHR::Buffer*>(buf_ptr), scb, ecb));
+	timer.async_wait(boost::bind(&EHR::stop, ehr));
+	ehr->start();
+}
 
 }	// end namespace tgw
 }	// end namespace gonline

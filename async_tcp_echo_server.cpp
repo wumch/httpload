@@ -18,7 +18,7 @@ g++ -DDEBUG=2 -Wall -g3 -lboost_system -pthread async_tcp_echo_server.cpp -o asy
 
 */
 
-#include <cstdlib>
+//#include <cstdlib>
 #include <iostream>
 #include <boost/bind.hpp>
 #include <boost/asio.hpp>
@@ -26,7 +26,10 @@ g++ -DDEBUG=2 -Wall -g3 -lboost_system -pthread async_tcp_echo_server.cpp -o asy
 
 // **************** import <gonline::tgw::ExtraHeaderResolver>: ****************
 
-// optional debug level. can be 0,1,2. if not specified, we will deduce a level by check NDEBUG/DEBUG.
+/*
+ * optional debug level. can be 0,1,2.
+ * if not specified, we will deduce a level by check NDEBUG/DEBUG.
+ */
 #define GOL_DEBUG	2		// set debug-level to 2.
 
 /*
@@ -38,8 +41,11 @@ g++ -DDEBUG=2 -Wall -g3 -lboost_system -pthread async_tcp_echo_server.cpp -o asy
  */
 #define GOL_OLD_VER_COMPATIBLE	1		// make old-version-protocol compatible.
 
-// optional, specify max-length of `extra-header`, for optimize performance. default is 100.
-#define GOL_EXTRA_HEADER_MAX_LENGTH	80		// tell <gonline::tgw::ExtraHeaderResolver> that your `extra-header` is not longer than 100 bytes.
+/*
+ * optional, specify max-length of `extra-header`, in bytes.
+ * it is used for optimize performance. default is 80.
+ */
+#define GOL_EXTRA_HEADER_MAX_LENGTH	60		// tell <gonline::tgw::ExtraHeaderResolver> that your `extra-header` is not longer than 60 bytes.
 
 #include "extra_header_resolver.hpp"
 
@@ -66,7 +72,7 @@ public:
 		 * instead of immediately enter  receive()/send()  loops,
 		 * we firstly call gonline::tgw::resolve_extra_header() here.
 		 */
-		//* usage 1:
+		/* usage 1:
 		gonline::tgw::resolve_extra_header(
 			socket_, data_,
 			// success-callback:
@@ -81,11 +87,11 @@ public:
 		);
 		// end usage 1 */
 
-		/* usage 2: (call on_extrea_header_error after timerout).
-		timer.expires_from_now(boost::posix_time::millisec(800));
+		//* usage 2: (call on_extrea_header_error after timerout).
+		timer.expires_from_now(boost::posix_time::millisec(3000));
 
 		gonline::tgw::resolve_extra_header(
-			socket_, data_,
+			socket_, reinterpret_cast<char*>(data_),
 			boost::bind(&session::handle_read, this,
 				boost::asio::placeholders::error,
 				boost::asio::placeholders::bytes_transferred),
@@ -98,15 +104,17 @@ public:
 
 	void on_extrea_header_error(const boost::system::error_code& error)
 	{
-		GOL_ERR(GOL_OC_BLUE(__FUNCTION__) << " called, error: " << error)
+		GOL_ERR(GOL_OC_BLUE(__FUNCTION__) << " called, error: " << error << ", " << error.message())
 		socket_.cancel();
+		timer.cancel();
 		delete this;
 	}
 
 	void handle_read(const boost::system::error_code& error,
 	    size_t bytes_transferred)
 	{
-		GOL_SAY(GOL_OC_BLUE(__FUNCTION__) << " called, error: " << error)
+		GOL_SAY(GOL_OC_BLUE(__FUNCTION__) << " called, error: " << error << ", " << error.message())
+		timer.cancel();
 		if (!error)
 		{
 			boost::asio::async_write(
