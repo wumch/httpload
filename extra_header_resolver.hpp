@@ -84,11 +84,12 @@ gonline::tgw::resolve_extra_header(
 #pragma once
 
 #include <cstddef>
-//#include <cstdlib>
-#include <string>
 #include <boost/cstdint.hpp>
 #include <boost/asio.hpp>
 #include <boost/bind.hpp>
+#include <boost/utility/enable_if.hpp>
+#include <boost/type_traits/is_array.hpp>
+#include <boost/type_traits/is_pointer.hpp>
 #include <boost/static_assert.hpp>
 #include <boost/enable_shared_from_this.hpp>
 
@@ -117,6 +118,7 @@ gonline::tgw::resolve_extra_header(
 #endif
 
 #if GOL_EXTRA_HEADER_CONST
+#   include <string>
 #	include <boost/lexical_cast.hpp>
 #	ifndef GOL_EXTRA_HEADER_VALIDATE
 #		define GOL_EXTRA_HEADER_VALIDATE 0
@@ -139,11 +141,11 @@ gonline::tgw::resolve_extra_header(
 #	error "macro name GOL_xxx... is taken."
 #endif
 
-#define GOL_OC_BLUE(val)	"\033[32;34;5m" << val << "\033[0m"
-#define GOL_OC_RED(val)		"\033[32;31;5m" << val << "\033[0m"
-#define GOL_OC_GREEN(val)	"\033[32;49;5m" << val << "\033[0m"
-#define GOL_STRLEN(s) 	(sizeof(s) / sizeof(char) - 1)
-#define GOL_MIN(a, b) ((a) <= (b) ? (a) : (b))
+#define GOL_OC_BLUE(...)	"\033[32;34;5m" << __VA_ARGS__ << "\033[0m"
+#define GOL_OC_RED(...)		"\033[32;31;5m" << __VA_ARGS__ << "\033[0m"
+#define GOL_OC_GREEN(...)	"\033[32;49;5m" << __VA_ARGS__ << "\033[0m"
+#define GOL_STRLEN(...) 	(sizeof(__VA_ARGS__) / sizeof(char) - 1)
+#define GOL_MIN(a, b)       ((a) <= (b) ? (a) : (b))
 
 #define GOL_EXTRA_HEADER_TAIL		"\r\n\r\n"
 #if !GOL_EXTRA_HEADER_CONST
@@ -174,15 +176,15 @@ BOOST_STATIC_ASSERT(GOL_STRLEN(GOL_VER_IDEC) == GOL_VER_IDEC_LENGTH);
 #define GOL_DUMP(...)	GOL_OUT(std::cout, GOL_OC_BLUE(#__VA_ARGS__) << ": " << GOL_OC_GREEN(__VA_ARGS__))
 
 #ifdef __GNUC__
-#	define GOL_BLIKELY(expr)		__builtin_expect((expr), 1)
-#	define GOL_BUNLIKELY(expr)		__builtin_expect((expr), 0)
+#	define GOL_BLIKELY(...)	    	__builtin_expect((__VA_ARGS__), 1)
+#	define GOL_BUNLIKELY(...)		__builtin_expect((__VA_ARGS__), 0)
 #	define GOL_ALWAYS_INLINE		__attribute__((always_inline))
 #	define GOL_DEPRECATED			__attribute__((deprecated))
 #	define GOL_FLOOR_DIV(val, base)	static_cast<typeof(val)>((val) / (base))
 #	define GOL_CEIL_DIV(val, base)	static_cast<typeof(val)>(((val) + (base) - 1) / (base))
 #else
-#	define GOL_BLIKELY(expr) 	(expr)
-#	define GOL_BUNLIKELY(expr)	(expr)
+#	define GOL_BLIKELY(...) 	(__VA_ARGS__)
+#	define GOL_BUNLIKELY(...)	(__VA_ARGS__)
 #	define GOL_ALWAYS_INLINE	inline
 #	define GOL_DEPRECATED
 #	define GOL_FLOOR_DIV(val, base)	static_cast<std::size_t>(((val) + (base) - 1) / (base))
@@ -232,11 +234,19 @@ public:
 		receive_header();
 	}
 
-	// stop by timeout
 	void stop()
 	{
-		GOL_SAY("calling " << GOL_OC_BLUE("<gonline::tgw::ExtraHeaderResolver>::" << __FUNCTION__))
 		sock.cancel();
+	}
+
+	// stop by timeout
+	void timeout(const boost::system::error_code& error)
+	{
+		if (error != boost::asio::error::operation_aborted)
+		{
+			GOL_ERR("stop extra-header-resolving while not finshed")
+			stop();
+		}
 	}
 
 #if GOL_DEBUG
@@ -475,8 +485,7 @@ std::string ExtraHeaderResolver<BufElem, _buffer_capacity,
 
 template<typename BufElem, buf_size_t buffer_capacity,
 	typename SuccessCb, typename ErrorCb>
-GOL_ALWAYS_INLINE ExtraHeaderResolver<BufElem, buffer_capacity,
-	SuccessCb, ErrorCb>*
+GOL_ALWAYS_INLINE ExtraHeaderResolver<BufElem, buffer_capacity, SuccessCb, ErrorCb>*
 make_resolver(
 	Sock& sock, BufElem (&buffer)[buffer_capacity],
 	const SuccessCb& scb, const ErrorCb& ecb)
@@ -487,57 +496,57 @@ make_resolver(
 
 template<typename BufElem, buf_size_t buffer_capacity,
 	typename SuccessCb, typename ErrorCb>
-inline void resolve_extra_header(
+inline ExtraHeaderResolver<BufElem, buffer_capacity, SuccessCb, ErrorCb>*
+resolve_extra_header(
 	Sock& sock, BufElem (&buffer)[buffer_capacity],
 	const SuccessCb& scb, const ErrorCb& ecb)
 {
 	typedef ExtraHeaderResolver<BufElem, buffer_capacity, SuccessCb, ErrorCb> EHR;
 	boost::shared_ptr<EHR> ehr(make_resolver(sock, buffer, scb, ecb));
 	ehr->start();
+	return ehr.get();
 }
 
 template<typename BufElem, buf_size_t buffer_capacity,
 	typename SuccessCb, typename ErrorCb>
-inline void resolve_extra_header(
+inline ExtraHeaderResolver<BufElem, buffer_capacity, SuccessCb, ErrorCb>*
+resolve_extra_header(
 	Sock& sock, BufElem (&buffer)[buffer_capacity],
 	const SuccessCb& scb, const ErrorCb& ecb,
 	boost::asio::deadline_timer& timer)
 {
 	typedef ExtraHeaderResolver<BufElem, buffer_capacity, SuccessCb, ErrorCb> EHR;
 	boost::shared_ptr<EHR> ehr(make_resolver(sock, buffer, scb, ecb));
-	timer.async_wait(boost::bind(&EHR::stop, ehr));
+	timer.async_wait(boost::bind(&EHR::timeout, ehr, bap::error));
 	ehr->start();
+	return ehr.get();
 }
 
 // for use dynamic buffer.
-template<typename BufElem, typename SuccessCb, typename ErrorCb>
-GOL_DEPRECATED inline void resolve_extra_header(
-	Sock& sock, BufElem* buf_ptr,
+template<typename SuccessCb, typename ErrorCb>
+GOL_DEPRECATED inline ExtraHeaderResolver<byte_t, GOL_EXTRA_HEADER_MAX_LENGTH, SuccessCb, ErrorCb>*
+resolve_extra_header(
+	Sock& sock, void* buf_ptr,
 	const SuccessCb& scb, const ErrorCb& ecb)
 {
-#if GOL_DEBUG
-	typedef ExtraHeaderResolver<BufElem, GOL_CEIL_DIV(GOL_EXTRA_HEADER_MAX_LENGTH * sizeof(byte_t),
-		sizeof(BufElem)), SuccessCb, ErrorCb> EHR;
-	GOL_ERR("NOTE: not sure whether your `socket buffer` is as wide as `" << EHR::buffer_capacity << " bytes` or not.")
-#endif
-	resolve_extra_header<BufElem, GOL_CEIL_DIV(GOL_EXTRA_HEADER_MAX_LENGTH * sizeof(byte_t),
-			sizeof(BufElem)), SuccessCb, ErrorCb>
+	typedef ExtraHeaderResolver<byte_t, GOL_EXTRA_HEADER_MAX_LENGTH, SuccessCb, ErrorCb> EHR;
+	GOL_ERR("NOTE: not sure whether your `socket buffer` is as wide as `"
+		<< EHR::buffer_capacity << " bytes` or not.")
+	return resolve_extra_header<byte_t, GOL_EXTRA_HEADER_MAX_LENGTH, SuccessCb, ErrorCb>
 		(sock, *reinterpret_cast<typename EHR::Buffer*>(buf_ptr), scb, ecb);
 }
 
-template<typename BufElem, typename SuccessCb, typename ErrorCb>
-GOL_DEPRECATED inline void resolve_extra_header(
-	Sock& sock, BufElem* buf_ptr,
+template<typename SuccessCb, typename ErrorCb>
+GOL_DEPRECATED inline ExtraHeaderResolver<byte_t, GOL_EXTRA_HEADER_MAX_LENGTH, SuccessCb, ErrorCb>*
+resolve_extra_header(
+	Sock& sock, void* buf_ptr,
 	const SuccessCb& scb, const ErrorCb& ecb,
 	boost::asio::deadline_timer& timer)
 {
-#if GOL_DEBUG
-	typedef ExtraHeaderResolver<BufElem, GOL_CEIL_DIV(GOL_EXTRA_HEADER_MAX_LENGTH * sizeof(byte_t),
-		sizeof(BufElem)), SuccessCb, ErrorCb> EHR;
-	GOL_ERR("NOTE: not sure whether your `socket buffer` is as wide as `" << EHR::buffer_capacity << " bytes` or not.")
-#endif
-	resolve_extra_header<BufElem, GOL_CEIL_DIV(GOL_EXTRA_HEADER_MAX_LENGTH * sizeof(byte_t),
-			sizeof(BufElem)), SuccessCb, ErrorCb>
+	typedef ExtraHeaderResolver<byte_t, GOL_EXTRA_HEADER_MAX_LENGTH, SuccessCb, ErrorCb> EHR;
+	GOL_ERR("NOTE: not sure whether your `socket buffer` is as wide as `"
+		<< EHR::buffer_capacity << " bytes` or not.")
+	return resolve_extra_header<byte_t, GOL_EXTRA_HEADER_MAX_LENGTH, SuccessCb, ErrorCb>
 		(sock, *reinterpret_cast<typename EHR::Buffer*>(buf_ptr), scb, ecb, timer);
 }
 

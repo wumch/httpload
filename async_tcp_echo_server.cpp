@@ -104,17 +104,17 @@ public:
 
 	void on_extrea_header_error(const boost::system::error_code& error)
 	{
+		timer.cancel();
 		GOL_ERR(GOL_OC_BLUE(__FUNCTION__) << " called, error: " << error << ", " << error.message())
 		socket_.cancel();
-		timer.cancel();
 		delete this;
 	}
 
 	void handle_read(const boost::system::error_code& error,
 	    size_t bytes_transferred)
 	{
-		GOL_SAY(GOL_OC_BLUE(__FUNCTION__) << " called, error: " << error << ", " << error.message())
 		timer.cancel();
+		GOL_SAY(GOL_OC_BLUE(__FUNCTION__) << " called, error: " << error << ", " << error.message())
 		if (!error)
 		{
 			boost::asio::async_write(
