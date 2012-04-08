@@ -178,13 +178,15 @@ BOOST_STATIC_ASSERT(GOL_STRLEN(GOL_VER_IDEC) == GOL_VER_IDEC_LENGTH);
 #	define GOL_BUNLIKELY(expr)		__builtin_expect((expr), 0)
 #	define GOL_ALWAYS_INLINE		__attribute__((always_inline))
 #	define GOL_DEPRECATED			__attribute__((deprecated))
-#	define GOL_CEIL_DIV(val, base)	static_cast<typeof(val)>((val + base - 1) / base)
+#	define GOL_FLOOR_DIV(val, base)	static_cast<typeof(val)>((val) / (base))
+#	define GOL_CEIL_DIV(val, base)	static_cast<typeof(val)>(((val) + (base) - 1) / (base))
 #else
 #	define GOL_BLIKELY(expr) 	(expr)
 #	define GOL_BUNLIKELY(expr)	(expr)
 #	define GOL_ALWAYS_INLINE	inline
 #	define GOL_DEPRECATED
-#	define GOL_CEIL_DIV(val, base)	static_cast<std::size_t>((val + base - 1) / base)
+#	define GOL_FLOOR_DIV(val, base)	static_cast<std::size_t>(((val) + (base) - 1) / (base))
+#	define GOL_CEIL_DIV(val, base)	static_cast<std::size_t>((val) / (base))
 #endif
 
 #if GOL_OLD_VER_COMPATIBLE == 1		// prefer new-version to old-version.
@@ -449,7 +451,7 @@ protected:
 	ErrorCb		error_cb;
 
 public:
-	static const buf_size_t buffer_capacity = GOL_CEIL_DIV(_buffer_capacity * sizeof(BufElem), sizeof(byte_t));
+	static const buf_size_t buffer_capacity = GOL_FLOOR_DIV(_buffer_capacity * sizeof(BufElem), sizeof(byte_t));
 	BOOST_STATIC_ASSERT(buffer_capacity >= GOL_STRLEN(GOL_EXTRA_HEADER_TAIL));
 
 #if GOL_EXTRA_HEADER_CONST
@@ -513,11 +515,14 @@ GOL_DEPRECATED inline void resolve_extra_header(
 	Sock& sock, BufElem* buf_ptr,
 	const SuccessCb& scb, const ErrorCb& ecb)
 {
+#if GOL_DEBUG
 	typedef ExtraHeaderResolver<BufElem, GOL_CEIL_DIV(GOL_EXTRA_HEADER_MAX_LENGTH * sizeof(byte_t),
 		sizeof(BufElem)), SuccessCb, ErrorCb> EHR;
 	GOL_ERR("NOTE: not sure whether your `socket buffer` is as wide as `" << EHR::buffer_capacity << " bytes` or not.")
-	boost::shared_ptr<EHR> ehr(make_resolver(sock, *reinterpret_cast<typename EHR::Buffer*>(buf_ptr), scb, ecb));
-	ehr->start();
+#endif
+	resolve_extra_header<BufElem, GOL_CEIL_DIV(GOL_EXTRA_HEADER_MAX_LENGTH * sizeof(byte_t),
+			sizeof(BufElem)), SuccessCb, ErrorCb>
+		(sock, *reinterpret_cast<typename EHR::Buffer*>(buf_ptr), scb, ecb);
 }
 
 template<typename BufElem, typename SuccessCb, typename ErrorCb>
@@ -526,12 +531,14 @@ GOL_DEPRECATED inline void resolve_extra_header(
 	const SuccessCb& scb, const ErrorCb& ecb,
 	boost::asio::deadline_timer& timer)
 {
+#if GOL_DEBUG
 	typedef ExtraHeaderResolver<BufElem, GOL_CEIL_DIV(GOL_EXTRA_HEADER_MAX_LENGTH * sizeof(byte_t),
 		sizeof(BufElem)), SuccessCb, ErrorCb> EHR;
 	GOL_ERR("NOTE: not sure whether your `socket buffer` is as wide as `" << EHR::buffer_capacity << " bytes` or not.")
-	boost::shared_ptr<EHR> ehr(make_resolver(sock, *reinterpret_cast<typename EHR::Buffer*>(buf_ptr), scb, ecb));
-	timer.async_wait(boost::bind(&EHR::stop, ehr));
-	ehr->start();
+#endif
+	resolve_extra_header<BufElem, GOL_CEIL_DIV(GOL_EXTRA_HEADER_MAX_LENGTH * sizeof(byte_t),
+			sizeof(BufElem)), SuccessCb, ErrorCb>
+		(sock, *reinterpret_cast<typename EHR::Buffer*>(buf_ptr), scb, ecb, timer);
 }
 
 }	// end namespace tgw

@@ -28,5 +28,5 @@ if __name__ == '__main__':
         addr = (sys.argv[1], int(sys.argv[2]))
         header %= addr
         data = 26745    # `travel()` require an int32_t
-        print("\033[32;34;5msent:\033[0m [\033[32;31;5m%d\033[0m], \033[32;34;5mreceived:\033[0m [\033[32;31;5m%d\033[0m]" %(data, travel(data, len(header) - 10, 4)))
+        print("\033[32;34;5msent:\033[0m [\033[32;31;5m%d\033[0m], \033[32;34;5mreceived:\033[0m [\033[32;31;5m%d\033[0m]" %(data, travel(data, len(header) - 10)))
 
