@@ -87,9 +87,6 @@ gonline::tgw::resolve_extra_header(
 #include <boost/cstdint.hpp>
 #include <boost/asio.hpp>
 #include <boost/bind.hpp>
-#include <boost/utility/enable_if.hpp>
-#include <boost/type_traits/is_array.hpp>
-#include <boost/type_traits/is_pointer.hpp>
 #include <boost/static_assert.hpp>
 #include <boost/enable_shared_from_this.hpp>
 
