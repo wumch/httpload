@@ -1,3 +1,7 @@
+
+a bit more friendly output edition of httpload.
+original httpload:
+
 	  http_load - multiprocessing http test client
 		     version of 12mar2006
 
